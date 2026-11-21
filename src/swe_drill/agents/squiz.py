@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 import shlex
@@ -332,26 +331,15 @@ class CopilotCliSquiz(CopilotCli):
 
     async def _details(self, environment: BaseEnvironment) -> dict[str, Any]:
         """
-        Which squiz ran, whether it loaded, how its episode ended, as `outcome`
-        and the marker's own fields, and each `squiz review`'s exit status.
+        Which squiz ran, whether it loaded, and each `squiz review`'s exit
+        status, which says how its episode ended.
         """
-        kept = self._kept()
-        markers = {}
-        for name in ("base", "closed", "stopped"):
-            result = await environment.exec(f"cat {shlex.quote(f'{kept}/{name}.json')} 2>/dev/null")
-            try:
-                markers[name] = json.loads(result.stdout or "") if result.return_code == 0 else None
-            except ValueError:
-                markers[name] = None
-        outcome = "closed" if markers["closed"] is not None else "stopped" if markers["stopped"] is not None else None
+        loaded = await environment.exec(f"test -f {shlex.quote(self._kept() + '/base.json')}")
         return {
             "squiz": {
                 "version": self.squiz_installed,
                 "copilot_experimental": "--experimental" in self.build_cli_flags().split(),
-                "loaded": markers["base"] is not None,
-                "outcome": outcome,
-                "closed": markers["closed"],
-                "stopped": markers["stopped"],
+                "loaded": loaded.return_code == 0,
                 "review_exits": list(self._review_exits),
             }
         }

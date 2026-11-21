@@ -718,8 +718,6 @@ def test_squiz_patch_is_saved_only_once_squiz_closes_after_copilot_exits(box, lo
     assert "the fixer's change" in patch, "the patch was saved before the fix changed the workspace"
     assert "a known change" in patch
     assert record(box)["status"] == "ok"
-    assert record(box)["squiz"]["outcome"] == "closed"
-    assert record(box)["squiz"]["closed"] == {"head": "0e7db84", "exitStatus": 0, "openThreads": []}
     assert record(box)["squiz"]["review_exits"] == [2, 0]
     assert (bin_dir(box) / "review.cwd").read_text().strip() == str(box / "sandbox" / "gleam")
 
@@ -813,14 +811,12 @@ def test_a_squiz_review_that_never_closes_is_recorded_as_review_timed_out(box, l
         go(under_harbors_timeout())
 
     assert record(box)["status"] == "review-timed-out"
-    assert record(box)["squiz"]["outcome"] is None
+    assert record(box)["squiz"]["review_exits"] == []
     assert "a known change" in (logs(box) / "model.patch").read_text()
 
 
 def test_a_squiz_review_that_fails_is_recorded_as_stopped(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
-    stopped = '{"head": "3f9c2e0", "stopped": "state unwritable", "reason": "it could not be written"}'
-    squiz_host(box, f"mkdir -p .squiz/local\nprintf '{stopped}' > .squiz/local/stopped.json\n")
     reviews(box, (1, ""))
 
     run(box, local_environment, squiz_agent(box))

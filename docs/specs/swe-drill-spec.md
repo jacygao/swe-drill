@@ -247,8 +247,9 @@ The agent's own files go there too, such as Copilot CLI's stream,
   agent's processes, then captures the patch and writes the record, and the
   verifier grades it.
 - `squiz`, in a `CopilotCliSquiz` trial alone, says which squiz ran, whether
-  Copilot CLI ran with `--experimental`, whether squiz loaded, how its
-  episode ended, and the exit status of each `squiz review` in order:
+  Copilot CLI ran with `--experimental`, whether squiz loaded, and the exit
+  status of each `squiz review` in order, the last of which says how its
+  episode ended:
 
   ```json
   {
@@ -256,18 +257,13 @@ The agent's own files go there too, such as Copilot CLI's stream,
       "version": "0.3.3",
       "copilot_experimental": true,
       "loaded": true,
-      "outcome": "closed",
-      "closed": { "head": "0e7db84", "exitStatus": 0, "openThreads": [] },
-      "stopped": null,
       "review_exits": [2, 0]
     }
   }
   ```
 
   `loaded` is whether `.squiz/local/base.json`, which squiz's `SessionStart`
-  hook writes, exists. `outcome` is `closed`, `stopped`, or `null` for an
-  episode that did neither, and `closed` and `stopped` hold squiz's
-  `closed.json` and `stopped.json`.
+  hook writes, exists.
 - A trial whose patch cannot be written fails with the capture's error, and is
   not graded, whatever the agent did.
 - `usage` is what the agent reports it spent, or `null` for an agent whose
