@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import shlex
+import uuid
 from typing import Any
 
 from harbor.agents.installed.base import NonZeroAgentExitCodeError, PackageSpec
@@ -20,35 +21,33 @@ NODE_SHA256 = {
 }
 EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+")
 # The first squiz that keeps a round's findings when its state lock is slow to take, as on a loaded machine.
-# Its reviewer and fixer also sign in from `copilotTokenFile`, since Copilot CLI gives its hooks no token.
+# Its reviewer also signs in from `copilotTokenFile`, since Copilot CLI gives its hooks no token.
 LEAST_VERSION = (0, 3, 3)
-SETTINGS = {"venue": "local", "reviewer": "copilot", "fixer": "copilot"}
+SETTINGS = {"venue": "local", "reviewer": "copilot"}
 # The values squiz's `thinking` takes.
 REVIEWER_EFFORTS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
-# How often the wait for squiz's close looks for it.
-POLL_SECONDS = 2
-# The ids Copilot CLI names a session's directory by, which are then safe in a path.
-SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# `squiz review`'s exit statuses.
+CLEAN, OPEN, FAILED, CLOSED_AT_BOUND, OUT_OF_TIME = 0, 2, 1, 3, 4
 
 
 class CopilotCliSquiz(CopilotCli):
     """
-    CopilotCli with squiz, at the arm's `squiz_version`, reviewing and fixing
-    the agent's change in its local venue, with Copilot CLI as reviewer and
-    fixer.
+    CopilotCli with squiz, at the arm's `squiz_version`, reviewing the
+    agent's change in its local venue with Copilot CLI as reviewer, and the
+    agent's own session answering what it finds.
 
-    squiz reviews once `copilot -p` has exited, from a round host the agent's
-    Stop hook leaves running, and its fixer edits the workspace after that.
-    So the run waits for squiz to close or stop its episode before anything
-    is stopped or the patch captured.
+    squiz only reviews. Once `copilot -p` has exited, the run waits on
+    `squiz review`, and while threads are open resumes the agent's session
+    with what it printed, as a session squiz wakes would be. So nothing is
+    stopped or the patch captured until the episode closes.
 
     squiz keeps its settings in the workspace's .squiz.json and its state in
     .squiz/, which .git/info/exclude keeps out of the patch. Its state is
     copied to the logs once the run ends.
 
     Copilot CLI gives its hooks no COPILOT_GITHUB_TOKEN, so squiz's reviewer
-    and fixer sign in from a token file outside the workspace, which exists
-    only while the agent runs.
+    signs in from a token file outside the workspace, which exists only while
+    the agent runs.
     """
 
     KWARGS = (*CopilotCli.KWARGS, "squiz_version", "reviewer_model", "reviewer_effort")
@@ -95,6 +94,8 @@ class CopilotCliSquiz(CopilotCli):
         self.squiz_installed: str | None = None
         self._plugin: str | None = None
         self._token_file: str | None = None
+        self._session: str | None = None
+        self._review_exits: list[int] = []
 
     async def install(self, environment: BaseEnvironment) -> None:
         """
@@ -104,7 +105,7 @@ class CopilotCliSquiz(CopilotCli):
         squiz's own `bin/squiz` runs whatever `node` is on PATH, and its hooks
         inherit the agent's PATH, where `node` is the task's. So it is
         replaced by one that runs this Node, and linked into $HOME/.local/bin,
-        where the fixer runs `squiz reply` by name. Raises RuntimeError when
+        where the resumed session runs `squiz reply` by name. Raises RuntimeError when
         the installed squiz reports another version.
         """
         await super().install(environment)
@@ -158,6 +159,11 @@ class CopilotCliSquiz(CopilotCli):
         self._token_file = f"{home}/.local/share/swe-drill/copilot-token"
 
     def build_cli_flags(self) -> str:
+        """The agent's flags, which name the session every fix resumes."""
+        session = f" --session-id={self._session}" if self._session is not None else ""
+        return f"{self._shared_flags()}{session}"
+
+    def _shared_flags(self) -> str:
         if self._plugin is None:
             raise RuntimeError("CopilotCliSquiz ran before install placed squiz")
         return f"{super().build_cli_flags()} --plugin-dir {shlex.quote(self._plugin)}"
@@ -173,6 +179,8 @@ class CopilotCliSquiz(CopilotCli):
         """
         if self._token_file is None:
             raise RuntimeError("CopilotCliSquiz ran before install placed squiz")
+        self._session = str(uuid.uuid4())
+        self._review_exits = []
         token_file = shlex.quote(self._token_file)
         # The token reaches the file from the environment, so no command line holds it.
         written = await self.exec_as_agent(
@@ -205,12 +213,19 @@ class CopilotCliSquiz(CopilotCli):
 
     async def _after_agent(self, environment: BaseEnvironment) -> str:
         """
-        Wait for squiz's episode to close, `ok`, or stop short of its close,
-        `review-stopped`. Only Harbor's agent timeout ends a wait for neither.
+        Run `squiz review` until the episode closes, resuming the agent's
+        session on what it printed each time it leaves threads open.
+
+        The trial is `ok` when the episode closes, clean or at squiz's bound,
+        and `review-stopped` when squiz fails. A review that runs out of time
+        is waited on again, since its round goes on, so only Harbor's agent
+        timeout ends a review that never closes.
 
         Raises RuntimeError when the run left no base.json, which squiz's
         SessionStart hook writes, since then squiz never loaded and nothing
-        will review the change.
+        will review the change; when `squiz review` exits with a status it
+        never gives; and when a fix exits non-zero, as the agent's own run
+        would fail.
         """
         local = self._local()
         loaded = await environment.exec(f"test -f {shlex.quote(local + '/base.json')}")
@@ -219,73 +234,107 @@ class CopilotCliSquiz(CopilotCli):
                 f"squiz never loaded: Copilot CLI exited and left no {local}/base.json,"
                 " which squiz's SessionStart hook writes"
             )
+        loop = shlex.quote(self._loop())
+        await environment.exec(f"rm -rf {loop} && mkdir -p {loop}")
         while True:
-            found = await environment.exec(
-                f"cd {shlex.quote(local)} && for name in closed.json stopped.json; do"
-                ' if [ -f "$name" ]; then echo "$name"; break; fi; done'
+            turn = len(self._review_exits) + 1
+            review = shlex.quote(f"{self._loop()}/{turn}.review.txt")
+            code = await self._exit_of(
+                environment, f'export PATH="$HOME/.local/bin:$PATH"; squiz review > {review}'
             )
-            marker = (found.stdout or "").strip()
-            if marker == "closed.json":
+            self._review_exits.append(code)
+            if code in (CLEAN, CLOSED_AT_BOUND):
                 return "ok"
-            if marker == "stopped.json":
+            if code == FAILED:
                 return "review-stopped"
-            await asyncio.sleep(POLL_SECONDS)
+            if code == OUT_OF_TIME:
+                continue
+            if code != OPEN:
+                raise RuntimeError(f"squiz review exited {code}, a status it never gives")
+            await self._fix(environment, review, shlex.quote(f"{self._loop()}/{turn}.fixer.jsonl"))
+
+    async def _fix(self, environment: BaseEnvironment, review: str, stream: str) -> None:
+        """
+        Resume the agent's session with `squiz review`'s output, unedited, as
+        its prompt, and with the agent's own flags.
+
+        Copilot CLI's `--resume` fails on a session it cannot find, so a fix
+        never runs in a fresh one.
+        """
+        model = f" --model={shlex.quote(self._parse_model_name(self.model_name)[1])}" if self.model_name else ""
+        code = await self._exit_of(
+            environment,
+            'export PATH="$HOME/.local/bin:$PATH"; '
+            f'copilot --prompt="$(cat {review})" --resume={self._session} --yolo'
+            f" --disable-mcp-server github-mcp-server{model} {self._shared_flags()}"
+            f" --output-format=json > {stream} 2>&1 </dev/null",
+        )
+        if code != 0:
+            raise RuntimeError(f"the fix resuming session {self._session} exited {code}")
+
+    async def _exit_of(self, environment: BaseEnvironment, command: str) -> int:
+        """
+        Run `command` in the workspace as the agent, and return its exit status.
+
+        Harbor raises on any status but 0, so the shell prints the status and exits 0.
+        """
+        result = await self.exec_as_agent(environment, f"{command}; printf '\\n%s' $?", cwd=self._prepared[0])
+        return int((result.stdout or "").rsplit("\n", 1)[-1])
 
     async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:
-        """
-        Remove the token file, copy squiz's state and its fixer's sessions to
-        the logs, then record the trial as CopilotCli does.
-        """
+        """Remove the token file, copy squiz's state to the logs, then record the trial as CopilotCli does."""
         if self._token_file is not None:
             await environment.exec(f"rm -f {shlex.quote(self._token_file)}")
-        await self._keep_squiz(environment)
-        await super()._record(environment, status, run_seconds)
-
-    async def _keep_squiz(self, environment: BaseEnvironment) -> None:
-        """
-        Copy .squiz/local/ to the logs as squiz/, less the objects of the heads
-        it built, and the fixer's sessions, which Copilot CLI keeps in the
-        agent's own COPILOT_HOME, to squiz/fixer-sessions/.
-        """
-        kept = self._kept()
+        kept = shlex.quote(self._kept())
+        local = shlex.quote(self._local())
         await environment.exec(
-            f"rm -rf {shlex.quote(kept)}; if [ -d {shlex.quote(self._local())} ]; then"
-            f" cp -R {shlex.quote(self._local())} {shlex.quote(kept)} && rm -rf {shlex.quote(kept + '/objects')}; fi"
+            f"rm -rf {kept}; if [ -d {local} ]; then cp -R {local} {kept} && rm -rf {kept}/objects; fi"
         )
-        listed = await environment.exec(f"find {shlex.quote(kept)} -name state.json 2>/dev/null")
-        sessions: list[str] = []
-        for path in (listed.stdout or "").split():
-            text = (await environment.exec(f"cat {shlex.quote(path)}")).stdout or ""
-            try:
-                state = json.loads(text)
-            except ValueError:
-                continue
-            sessions += [found for found in fixer_sessions(state) if found not in sessions]
-        for session in sessions:
-            await environment.exec(
-                f"mkdir -p {shlex.quote(kept + '/fixer-sessions')} && cp -R"
-                f' "$HOME/.copilot/session-state/{session}" {shlex.quote(kept + "/fixer-sessions/" + session)}'
-            )
+        await super()._record(environment, status, run_seconds)
 
     async def _usage(self, environment: BaseEnvironment) -> dict[str, Any]:
         """
-        CopilotCli's usage, with `ai_credits` the whole run's: the agent's, and
-        each reviewer's and fixer's session's, which `squiz` breaks out. It is
-        None where any of them is unknown, so no partial sum reads as the whole.
+        CopilotCli's usage, with `ai_credits` the whole run's: the agent's
+        first run, each reviewer session's, and each fix's, which `squiz`
+        breaks out. It is None where any of them is unknown, so no partial
+        sum reads as the whole.
+
+        A resumed session's credits count on from where it left off, so the
+        fixes cost the last one's largest checkpoint less the agent's own.
         """
         usage = await super()._usage(environment)
-        kept = shlex.quote(self._kept())
         reviewer = await _sessions_usage(
-            environment, f"find {kept} -path '*/session/session-state/*/events.jsonl' 2>/dev/null"
+            environment, f"find {shlex.quote(self._kept())} -path '*/session/session-state/*/events.jsonl' 2>/dev/null"
         )
-        fixer = await _sessions_usage(environment, f"find {kept}/fixer-sessions -name events.jsonl 2>/dev/null")
+        listed = await environment.exec(f"ls {shlex.quote(self._loop())} 2>/dev/null")
+        turns = sorted(
+            (name for name in (listed.stdout or "").split() if name.endswith(".fixer.jsonl")),
+            key=lambda name: int(name.split(".", 1)[0]),
+        )
+        fixer: dict[str, Any] = {"ai_credits": 0.0, "reported_models": [], "turns": len(turns)}
+        if turns:
+            models: set[str] = set()
+            last = None
+            for name in turns:
+                path = shlex.quote(f"{self._loop()}/{name}")
+                events = copilot_cli.read_events(
+                    (await environment.exec(f"grep -E {copilot_cli.EVENT_LINES} {path}")).stdout or ""
+                )
+                models.update(events["reported_models"])
+                last = events["credits"]
+            agent = usage["ai_credits"]
+            fixer["ai_credits"] = None if last is None or agent is None else round(last - agent, 4)
+            fixer["reported_models"] = sorted(models)
         parts = [usage["ai_credits"], reviewer["ai_credits"], fixer["ai_credits"]]
         usage["ai_credits"] = None if None in parts else round(sum(parts), 4)
         usage["squiz"] = {"reviewer": reviewer, "fixer": fixer}
         return usage
 
     async def _details(self, environment: BaseEnvironment) -> dict[str, Any]:
-        """Which squiz ran, whether it loaded, and how its episode ended, as `outcome` and the marker's own fields."""
+        """
+        Which squiz ran, whether it loaded, how its episode ended, as `outcome`
+        and the marker's own fields, and each `squiz review`'s exit status.
+        """
         kept = self._kept()
         markers = {}
         for name in ("base", "closed", "stopped"):
@@ -303,6 +352,7 @@ class CopilotCliSquiz(CopilotCli):
                 "outcome": outcome,
                 "closed": markers["closed"],
                 "stopped": markers["stopped"],
+                "review_exits": list(self._review_exits),
             }
         }
 
@@ -321,22 +371,9 @@ class CopilotCliSquiz(CopilotCli):
     def _kept(self) -> str:
         return f"{self.sandbox_logs.rstrip('/')}/squiz"
 
-
-def fixer_sessions(state: Any) -> list[str]:
-    """The id of each fixer session a squiz state file records, as its rounds' `fixer.session.id`."""
-    found: list[str] = []
-    if isinstance(state, dict):
-        session = (state.get("fixer") or {}).get("session") if isinstance(state.get("fixer"), dict) else None
-        if isinstance(session, dict) and isinstance(session.get("id"), str) and SESSION_ID.fullmatch(session["id"]):
-            found.append(session["id"])
-        children = state.values()
-    elif isinstance(state, list):
-        children = state
-    else:
-        return found
-    for child in children:
-        found += [session for session in fixer_sessions(child) if session not in found]
-    return found
+    def _loop(self) -> str:
+        """Where each `squiz review`'s output and each fix's stream are kept, as `<n>.review.txt` and `<n>.fixer.jsonl`."""
+        return f"{self.sandbox_logs.rstrip('/')}/squiz-loop"
 
 
 async def _sessions_usage(environment: BaseEnvironment, listing: str) -> dict[str, Any]:
