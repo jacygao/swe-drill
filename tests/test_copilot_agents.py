@@ -567,7 +567,9 @@ def test_an_agent_file_with_no_full_auto_prompt_is_refused(text):
 SQUIZ_VERSION = "0.3.3"
 # Records each call, writes squiz's base.json where squiz's hooks were loaded,
 # as its SessionStart does, prints the stream, makes a change, and leaves
-# squiz-host.sh running detached, as squiz's round host outlives the run.
+# squiz-host.sh running detached, as squiz's round host outlives the run. A
+# resumed session is a fix: it records its prompt, prints fixer.jsonl and makes
+# the fixer's change instead.
 SQUIZ_COPILOT = """#!PYTHON
 import json, os, shutil, subprocess, sys
 from pathlib import Path
@@ -581,6 +583,15 @@ with open(here / "copilot.calls", "a") as calls:
 if "--version" in argv:
     print("GitHub Copilot CLI 1.0.107.")
     sys.exit(0)
+if any(arg.startswith("--resume=") for arg in argv):
+    (here / "fix.argv").write_text(json.dumps(argv))
+    with open(here / "fix.prompts", "a") as prompts:
+        prompts.write(json.dumps(next(arg.split("=", 1)[1] for arg in argv if arg.startswith("--prompt="))) + "\\n")
+    if (here / "fixer.jsonl").exists():
+        print((here / "fixer.jsonl").read_text(), end="")
+    with open("hello.txt", "a") as f:
+        f.write("the fixer's change\\n")
+    sys.exit(int((here / "fix.exit").read_text()) if (here / "fix.exit").exists() else 0)
 (here / "copilot.argv").write_text(json.dumps(argv))
 (here / "copilot.which").write_text(json.dumps({"node": shutil.which("node"), "squiz": shutil.which("squiz")}))
 plugin = Path(argv[argv.index("--plugin-dir") + 1]) if "--plugin-dir" in argv else None
@@ -595,10 +606,8 @@ if host.exists():
     subprocess.Popen(["/bin/sh", str(host)], start_new_session=True, stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 """
-# A round host that reviews for a moment, then has its fixer change the
-# workspace, then closes the episode.
+# A round host that reviews for a moment, then closes the episode.
 CLOSING_HOST = """sleep 1
-echo "the fixer's change" >> hello.txt
 mkdir -p .squiz/local
 printf '{"threads": []}' > .squiz/local/threads.json
 printf '2 rounds, 1 finding' > .squiz/local/summary.md
@@ -628,8 +637,18 @@ FAKE_NODE = """#!/bin/sh
 if [ "$1" = --version ]; then echo v24.15.0; exit 0; fi
 exec /bin/sh "$@"
 """
+# `review` prints review.<n>.out and exits review.<n>.exit, 0 where the test gave none, for its nth call.
 FAKE_SQUIZ_CLI = """root=$(cd "$(dirname "$0")/.." && pwd)
 [ "$1" = version ] && echo "squiz VERSION $root/bin/squiz"
+if [ "$1" = review ]; then
+    here="$HOME/.local/bin"
+    n=$(( $(cat "$here/review.count" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$here/review.count"
+    pwd > "$here/review.cwd"
+    [ -f "$here/review.sleep" ] && sleep "$(cat "$here/review.sleep")"
+    cat "$here/review.$n.out" 2>/dev/null
+    exit "$(cat "$here/review.$n.exit" 2>/dev/null || echo 0)"
+fi
 """
 
 
@@ -659,7 +678,6 @@ def publish_squiz(box: Path, monkeypatch, version: str = SQUIZ_VERSION) -> None:
         archive.add(root, arcname=root.name)
     digest = hashlib.sha256((bin_dir(box) / "node.tar.gz").read_bytes()).hexdigest()
     monkeypatch.setattr(squiz_agent_module, "NODE_SHA256", {node_arch(): digest})
-    monkeypatch.setattr(squiz_agent_module, "POLL_SECONDS", 0.05)
     for name, text in (("copilot", SQUIZ_COPILOT), ("curl", SQUIZ_CURL), ("sha256sum", SHA256SUM)):
         (bin_dir(box) / name).write_text(text.replace("PYTHON", sys.executable))
         (bin_dir(box) / name).chmod(0o755)
@@ -677,23 +695,99 @@ def squiz_plugin(box: Path) -> Path:
     return box / "sandbox" / "home" / ".local" / "share" / "squiz" / SQUIZ_VERSION
 
 
+def reviews(box: Path, *results: tuple[int, str]) -> None:
+    """What each `squiz review` in turn exits and prints."""
+    for n, (code, text) in enumerate(results, start=1):
+        (bin_dir(box) / f"review.{n}.exit").write_text(str(code))
+        (bin_dir(box) / f"review.{n}.out").write_text(text)
+
+
+THREADS = "1 thread is open on 0e7db84.\n\n- hello.txt:2 — the greeting is doubled.\n"
+
+
 def test_squiz_patch_is_saved_only_once_squiz_closes_after_copilot_exits(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
     squiz_host(box, CLOSING_HOST)
+    reviews(box, (2, THREADS), (0, "Reviewed clean.\n"))
+    # Each review returns once the round host has closed the episode.
+    (bin_dir(box) / "review.sleep").write_text("2")
 
     run(box, local_environment, squiz_agent(box))
 
     patch = (logs(box) / "model.patch").read_text()
-    assert "the fixer's change" in patch, "the patch was saved before squiz's fixer changed the workspace"
+    assert "the fixer's change" in patch, "the patch was saved before the fix changed the workspace"
     assert "a known change" in patch
     assert record(box)["status"] == "ok"
-    assert record(box)["squiz"]["outcome"] == "closed"
-    assert record(box)["squiz"]["closed"] == {"head": "0e7db84", "exitStatus": 0, "openThreads": []}
+    assert record(box)["squiz"]["review_exits"] == [2, 0]
+    assert (bin_dir(box) / "review.cwd").read_text().strip() == str(box / "sandbox" / "gleam")
+
+
+def test_a_fix_resumes_the_agents_session_on_squiz_reviews_output_unedited(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    reviews(box, (2, THREADS), (2, "Still open.\n"), (0, ""))
+
+    run(box, local_environment, squiz_agent(box))
+
+    prompts = [json.loads(line) for line in (bin_dir(box) / "fix.prompts").read_text().splitlines()]
+    # The shell's $(cat) drops the trailing newline, and nothing else.
+    assert prompts == [THREADS.rstrip("\n"), "Still open."]
+    agent_argv, fix_argv = copilot_argv(box), json.loads((bin_dir(box) / "fix.argv").read_text())
+    session = next(arg.split("=", 1)[1] for arg in agent_argv if arg.startswith("--session-id="))
+    assert f"--resume={session}" in fix_argv
+    for flag in ("--experimental", "--yolo", "--model=gpt-6.1-sol", "--plugin-dir", "--disable-builtin-mcps"):
+        assert flag in fix_argv, f"the fix ran without the agent's {flag}"
+    assert not any(arg.startswith("--session-id") for arg in fix_argv)
+    assert (logs(box) / "squiz-loop" / "1.review.txt").read_text() == THREADS
+
+
+def test_a_review_closed_at_squizs_bound_is_ok(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    reviews(box, (3, "Closed at the round cap with 1 low thread open.\n"))
+
+    run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["status"] == "ok"
+    assert not (bin_dir(box) / "fix.argv").exists(), "a fix ran on a closed episode"
+
+
+def test_a_review_out_of_time_is_waited_on_again_without_a_fix(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    reviews(box, (4, "Still under review.\n"), (0, ""))
+
+    run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["squiz"]["review_exits"] == [4, 0]
+    assert not (bin_dir(box) / "fix.argv").exists()
+
+
+def test_a_review_status_squiz_never_gives_is_harness_failed(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    reviews(box, (127, ""))
+
+    with pytest.raises(RuntimeError, match="127"):
+        run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["status"] == "harness-failed"
+
+
+def test_a_fix_that_exits_non_zero_is_harness_failed_with_its_change_captured(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    reviews(box, (2, THREADS))
+    (bin_dir(box) / "fix.exit").write_text("1")
+
+    with pytest.raises(RuntimeError, match="fix"):
+        run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["status"] == "harness-failed"
+    assert "the fixer's change" in (logs(box) / "model.patch").read_text()
 
 
 def test_squiz_threads_summary_and_close_are_kept_under_agent(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
     squiz_host(box, CLOSING_HOST)
+    # The review returns once the round host has closed the episode.
+    (bin_dir(box) / "review.sleep").write_text("2")
 
     run(box, local_environment, squiz_agent(box))
 
@@ -705,7 +799,7 @@ def test_squiz_threads_summary_and_close_are_kept_under_agent(box, local_environ
 
 def test_a_squiz_review_that_never_closes_is_recorded_as_review_timed_out(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
-    squiz_host(box, "sleep 30\n")
+    (bin_dir(box) / "review.sleep").write_text("30")
     the_agent = squiz_agent(box)
 
     async def under_harbors_timeout():
@@ -717,23 +811,21 @@ def test_a_squiz_review_that_never_closes_is_recorded_as_review_timed_out(box, l
         go(under_harbors_timeout())
 
     assert record(box)["status"] == "review-timed-out"
-    assert record(box)["squiz"]["outcome"] is None
+    assert record(box)["squiz"]["review_exits"] == []
     assert "a known change" in (logs(box) / "model.patch").read_text()
 
 
-def test_a_squiz_episode_that_stops_short_of_its_close_is_recorded_as_stopped(box, local_environment, monkeypatch):
+def test_a_squiz_review_that_fails_is_recorded_as_stopped(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
-    stopped = '{"head": "3f9c2e0", "stopped": "fixer queued nothing", "reason": "it queued nothing"}'
-    squiz_host(box, f"sleep 1\nmkdir -p .squiz/local\nprintf '{stopped}' > .squiz/local/stopped.json\n")
+    reviews(box, (1, ""))
 
     run(box, local_environment, squiz_agent(box))
 
     assert record(box)["status"] == "review-stopped"
-    assert record(box)["squiz"]["outcome"] == "stopped"
-    assert record(box)["squiz"]["stopped"]["stopped"] == "fixer queued nothing"
+    assert record(box)["squiz"]["review_exits"] == [1]
 
 
-def test_squiz_is_configured_for_the_local_venue_with_copilot_reviewing_and_fixing(box, local_environment, monkeypatch):
+def test_squiz_is_configured_for_the_local_venue_with_copilot_reviewing_and_no_fixer(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
     squiz_host(box, CLOSING_HOST)
 
@@ -743,7 +835,6 @@ def test_squiz_is_configured_for_the_local_venue_with_copilot_reviewing_and_fixi
     assert settings == {
         "venue": "local",
         "reviewer": "copilot",
-        "fixer": "copilot",
         "copilotTokenFile": str(box / "sandbox" / "home" / ".local" / "share" / "swe-drill" / "copilot-token"),
     }
 
@@ -780,7 +871,7 @@ def test_a_squiz_sessions_model_and_effort_are_read_from_its_stored_events():
     assert re.search(copilot_module.EVENT_LINES.strip("'"), '"type": "session.model_change"'), "the grep drops the change"
 
 
-def test_squizs_reviewer_and_fixer_get_the_token_from_a_private_file_removed_after_the_run(
+def test_squizs_reviewer_gets_the_token_from_a_private_file_removed_after_the_run(
     box, local_environment, monkeypatch
 ):
     publish_squiz(box, monkeypatch)
@@ -790,6 +881,8 @@ def test_squizs_reviewer_and_fixer_get_the_token_from_a_private_file_removed_aft
         f"cat \"$file\" > {bin_dir(box)}/token.seen\n"
         f"stat -c %a \"$file\" 2>/dev/null > {bin_dir(box)}/token.mode || stat -f %Lp \"$file\" > {bin_dir(box)}/token.mode\n"
     ) + CLOSING_HOST)
+
+    reviews(box, (2, THREADS), (0, ""))
 
     run(box, local_environment, squiz_agent(box))
 
@@ -804,6 +897,7 @@ def test_squizs_files_are_never_in_the_patch(box, local_environment, monkeypatch
     publish_squiz(box, monkeypatch)
     # squiz's own .squiz/.gitignore is left out, so only SWE-drill's exclude keeps .squiz/ out.
     squiz_host(box, CLOSING_HOST + "printf '{}' > .squiz/local/state.json\n")
+    reviews(box, (2, THREADS), (0, ""))
 
     run(box, local_environment, squiz_agent(box))
 
@@ -909,7 +1003,7 @@ def test_squizs_node_stays_off_the_agents_path(box, local_environment, monkeypat
 
     which = json.loads((bin_dir(box) / "copilot.which").read_text())
     assert which["node"] is None or "swe-drill" not in which["node"], "the task's node was replaced"
-    assert which["squiz"] == str(bin_dir(box) / "squiz"), "the fixer cannot run squiz reply by name"
+    assert which["squiz"] == str(bin_dir(box) / "squiz"), "a resumed session cannot run squiz reply by name"
 
 
 def test_squiz_install_fails_on_a_node_archive_with_another_checksum(box, local_environment, monkeypatch):
@@ -949,38 +1043,34 @@ def session_events(nano: int, model: str) -> str:
     ))
 
 
-def test_the_trials_credits_include_squizs_reviewer_and_fixer_sessions(box, local_environment, monkeypatch):
+def test_the_trials_credits_include_squizs_reviewer_sessions_and_the_fixes(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
-    home = box / "sandbox" / "home"
     files = {
         # A reviewer's COPILOT_HOME is its round's session directory.
         ".squiz/local/rounds/1/session/session-state/r1/events.jsonl": session_events(3_000_000_000, "gpt-6-astra"),
         ".squiz/local/rounds/2/session/session-state/r2/events.jsonl": session_events(1_500_000_000, "gpt-6-astra"),
-        # The fixer runs in the coding agent's COPILOT_HOME, beside the agent's own session.
-        f"{home}/.copilot/session-state/f1/events.jsonl": session_events(2_000_000_000, "gpt-6.1-sol"),
-        f"{home}/.copilot/session-state/agent/events.jsonl": session_events(18_439_490_000, "gpt-6.1-sol"),
-        ".squiz/local/state.json": json.dumps({"rounds": [
-            {"fixer": {"outcome": "started", "agent": "copilot", "session": {"id": "f1", "resumed": False}}},
-            {"fixer": {"outcome": "not started", "reason": "a fixer is running"}},
-        ]}),
     }
     script = "".join(
         f"mkdir -p {shlex.quote(str(Path(path).parent))}\nprintf %s {shlex.quote(text)} > {shlex.quote(path)}\n"
         for path, text in files.items()
     )
     squiz_host(box, script + CLOSING_HOST)
+    reviews(box, (2, THREADS), (2, THREADS), (0, ""))
+    # The resumed session's checkpoints count on from the agent's 18.43949.
+    write_stream(bin_dir(box), STREAM)
+    (bin_dir(box) / "fixer.jsonl").write_text(session_events(22_439_490_000, "gpt-6.1-sol"))
 
     _, context, _ = run(box, local_environment, squiz_agent(box))
 
     usage = record(box)["usage"]
-    assert usage["ai_credits"] == pytest.approx(18.4395 + 3 + 1.5 + 2)
+    assert usage["ai_credits"] == pytest.approx(22.4395 + 4.5)
     assert usage["squiz"] == {
         "reviewer": {"ai_credits": 4.5, "reported_models": ["gpt-6-astra"], "sessions": 2},
-        "fixer": {"ai_credits": 2.0, "reported_models": ["gpt-6.1-sol"], "sessions": 1},
+        "fixer": {"ai_credits": 4.0, "reported_models": ["gpt-6.1-sol"], "turns": 2},
     }
     assert usage["reported_models"] == ["gpt-6.1-sol"]
     assert context.metadata["ai_credits"] == usage["ai_credits"], "Harbor's result leaves out the review"
-    assert (logs(box) / "squiz" / "fixer-sessions" / "f1" / "events.jsonl").exists()
+    assert (logs(box) / "squiz-loop" / "2.fixer.jsonl").exists()
 
 
 def test_a_squiz_session_that_reported_no_credits_leaves_the_trials_credits_unknown(
