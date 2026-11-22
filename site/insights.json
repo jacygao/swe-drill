@@ -915,9 +915,7 @@
      "flipt-io__flipt-cd18e54"
     ]
    },
-   "only": [
-    "internetarchive__openlibrary-7cbfb81"
-   ],
+   "only": [],
    "missed": [],
    "failures": {
     "Tests failed": 13
@@ -1123,6 +1121,95 @@
    },
    "models": null
   },
+  "copilot-mai-code-2": {
+   "runs": [
+    {
+     "job": "20261122T041957Z-1",
+     "resolved": 41,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 900
+    },
+    {
+     "job": "20261122T042311Z-1",
+     "resolved": 41,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 918
+    },
+    {
+     "job": "20261122T054328Z-1",
+     "resolved": 45,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 791
+    }
+   ],
+   "tasks": {
+    "always": 37,
+    "sometimes": [
+     "ansible__ansible-40ade1f",
+     "element-hq__element-web-66d0b31",
+     "element-hq__element-web-ecfd173",
+     "flipt-io__flipt-2ca5dfb",
+     "internetarchive__openlibrary-6e889f4",
+     "internetarchive__openlibrary-7cbfb81",
+     "internetarchive__openlibrary-a48fd6b",
+     "protonmail__webclients-5f0745d",
+     "protonmail__webclients-e65cc5f"
+    ],
+    "never": [
+     "ansible__ansible-de5858f",
+     "flipt-io__flipt-3d5a345",
+     "flipt-io__flipt-c188284",
+     "flipt-io__flipt-cd18e54",
+     "internetarchive__openlibrary-b67138b"
+    ]
+   },
+   "only": [],
+   "missed": [
+    "ansible__ansible-de5858f"
+   ],
+   "failures": {
+    "Tests failed": 24,
+    "No test result": 2
+   },
+   "tokens": {
+    "median": 1268747,
+    "top": [
+     {
+      "task": "tutao__tutanota-f373ac3",
+      "value": 7033631
+     },
+     {
+      "task": "flipt-io__flipt-2ca5dfb",
+      "value": 5360716
+     },
+     {
+      "task": "NodeBB__NodeBB-8168c6c",
+      "value": 5074222
+     }
+    ]
+   },
+   "minutes": {
+    "median": 7.2,
+    "top": [
+     {
+      "task": "gravitational__teleport-2b15263",
+      "value": 23.5
+     },
+     {
+      "task": "protonmail__webclients-5f0745d",
+      "value": 23.1
+     },
+     {
+      "task": "flipt-io__flipt-3d5a345",
+      "value": 22.3
+     }
+    ]
+   },
+   "models": null
+  },
   "copilot-fusion-high": {
    "runs": [
     {
@@ -1170,7 +1257,6 @@
    "only": [],
    "missed": [
     "internetarchive__openlibrary-0dc5b20",
-    "internetarchive__openlibrary-b67138b",
     "protonmail__webclients-c5a2089",
     "tutao__tutanota-f373ac3"
    ],

@@ -29,6 +29,11 @@ agent = "swe_drill.agents.claude_code:ClaudeCode"
 model = "claude-sonnet-5-5"
 kwargs = { version = "2.1.311", reasoning_effort = "high" }
 
+[arms.copilot-mai-code-2]
+agent = "swe_drill.agents.copilot_cli:CopilotCli"
+model = "mai-code-2"
+kwargs = { version = "1.0.107", reasoning_effort = "high" }
+
 [arms.copilot-fusion]
 agent = "swe_drill.agents.copilot_cli:CopilotCli"
 model = "fusion"

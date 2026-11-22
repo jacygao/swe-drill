@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-20",
+  "updated": "2026-11-22",
   "rebench": {
     "title": "rebench",
     "about": "SWE-rebench’s July 2026 snapshot: 108 GitHub issues from open-source repositories, each graded by its own hidden tests. Every arm runs the same tasks, graded the same way.",
@@ -469,9 +469,52 @@
         ],
         "note": "The three runs ran at once, one Azure region each, and no trial needed running again. 41 tasks were resolved in all three runs, and 46 in at least one. Four trials record no test result: each patch applied and the task’s tests ran, but none passed, so they count as unresolved.",
         "takeaways": [
-          "It resolved 85% for $19.02 a run, the most resolved per dollar after Sonnet.",
+          "It resolved 85% for $19.02 a run, the most resolved per dollar after MAI Code 2 and Sonnet.",
           "hve-core’s RPI Agent on the same model resolved one point more, at 3.2× its cost.",
           "Four of its unresolved trials record no test result: each patch applied and the task’s tests ran, but none passed."
+        ]
+      },
+      {
+        "name": "copilot-mai-code-2",
+        "agent": "Copilot CLI 1.0.107",
+        "harness": "Default",
+        "model": "mai-code-2, effort high",
+        "rate": 0.8301,
+        "margin": 0.085,
+        "pass": 0.902,
+        "timedOut": 0,
+        "cost": 8.7,
+        "hours": 7.36,
+        "tokens": 1269000,
+        "where": "Docker · Azure",
+        "params": "version 1.0.107, effort high",
+        "runs": [
+          {
+            "job": "20261122T041957Z-1",
+            "date": "2026-11-22",
+            "where": "Docker on Azure, New Zealand North",
+            "median": 7.0
+          },
+          {
+            "job": "20261122T042311Z-1",
+            "date": "2026-11-22",
+            "where": "Docker on Azure, Korea Central",
+            "median": 7.9
+          },
+          {
+            "job": "20261122T054328Z-1",
+            "date": "2026-11-22",
+            "where": "Docker on Azure, Australia East",
+            "median": 7.0
+          }
+        ],
+        "note": "The New Zealand North and Korea Central runs ran at once. The Australia East run failed while its VM was set up, before any agent ran, and ran again on a fresh VM once the others had finished. No trial needed running again. 37 tasks were resolved in all three runs, and 46 in at least one. Two trials, of flipt-2ca5dfb and flipt-3d5a345, record no test result: each patch applied, but none of the tests the task needs reported, so they count as unresolved.",
+        "takeaways": [
+          "It is the cheapest arm at $8.70 a run, 64% of Sonnet’s cost, and resolved 4 points more than Sonnet.",
+          "It resolved 2 points less than GPT-6.1 Sol, a gap well inside the noise, at 46% of its cost.",
+          "9 tasks changed outcome between its runs, the most of any arm, and its 90% pass@3 ties GPT-6.1 Sol’s.",
+          "It is the only arm never to resolve ansible__ansible-de5858f, which every other arm resolved at least once.",
+          "Its two untested trials are flipt-io__flipt-2ca5dfb and flipt-io__flipt-3d5a345: each patch applied, but none of the task’s tests reported."
         ]
       },
       {
@@ -552,7 +595,7 @@
         "note": "Each run started once its region’s Opus run had finished. The Australia East run failed while its VM was set up, before any agent ran, and ran again on a fresh VM. 37 tasks were resolved in all three runs, and 43 in at least one. Three trials, all of flipt-c1728053, record no test result: each patch applied but left the package failing to build, so they count as unresolved.",
         "label": "below",
         "takeaways": [
-          "It is the cheapest arm at $13.58 a run, and used the fewest tokens, a median of 508k a trial.",
+          "It cost $13.58 a run, the cheapest arm after MAI Code 2, and used the fewest tokens, a median of 508k a trial.",
           "It resolved one point less than Fusion high, at 61% of its cost.",
           "Its three untested trials are all flipt-io__flipt-c172805: each patch applied but left the package failing to build."
         ]
