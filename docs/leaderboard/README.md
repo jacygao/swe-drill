@@ -110,9 +110,9 @@ resolved rate, as `swe-drill leaderboard --lane rebench` does.
 SWE-bench Pro, which SWE-drill no longer runs: Sonnet 5.5 on plain Copilot CLI
 resolved 98% of `pro-go`, leaving no room to tell harnesses apart. Later, over
 three runs each on plain Copilot CLI, `pro-hard51`, Pro's hardest 51 tasks, was
-resolved 92% by Opus 5.5, 85% by GPT-6.1 Sol, 83% by MAI Code 2, 80% by Fusion
-at tier high and 79% by Sonnet 5.5. GPT-6.1 Sol as hve-core's RPI Agent
-resolved 86%.
+resolved 92% by Opus 5.5, 87% by Fusion at tier max, 85% by GPT-6.1 Sol, 83% by
+MAI Code 2, 80% by Fusion at tier high and 79% by Sonnet 5.5. GPT-6.1 Sol as
+hve-core's RPI Agent resolved 86%.
 
 | Lane | Arm | Agent | Harness | Model | Date | Tasks | Resolved | Unresolved | Invalid | Timed out | Harness failed | Resolved share | AI credits | Agent time, sum of trials | Elapsed |
 |---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -128,6 +128,9 @@ resolved 86%.
 | `pro-hard51` | `copilot-fusion-high` | `copilot-cli` | Default | Fusion, tier high | 2026-11-19 | 51 | 41 | 10 | 0 | 0 | 0 | 80% | 2,306 (≈ $23) | 14.4 h | 1.8 h |
 | `pro-hard51` | `copilot-fusion-high` | `copilot-cli` | Default | Fusion, tier high | 2026-11-19 | 51 | 39 | 12 | 0 | 0 | 0 | 76% | 2,182 (≈ $22) | 14.2 h | 1.6 h |
 | `pro-hard51` | `copilot-fusion-high` | `copilot-cli` | Default | Fusion, tier high | 2026-11-19 | 51 | 42 | 9 | 0 | 1 | 0 | 82% | 2,205 (≈ $22) | 14.9 h | 1.8 h |
+| `pro-hard51` | `copilot-fusion-max` | `copilot-cli` | Default | Fusion, tier max | 2026-11-23 | 51 | 45 | 6 | 0 | 0 | 0 | 88% | 8,255 (≈ $83) | 8.4 h | 1.2 h |
+| `pro-hard51` | `copilot-fusion-max` | `copilot-cli` | Default | Fusion, tier max | 2026-11-23 | 51 | 44 | 7 | 0 | 0 | 0 | 86% | 7,996 (≈ $80) | 8.9 h | 1.3 h |
+| `pro-hard51` | `copilot-fusion-max` | `copilot-cli` | Default | Fusion, tier max | 2026-11-23 | 51 | 44 | 7 | 0 | 0 | 0 | 86% | 7,884 (≈ $79) | 8.4 h | 1.2 h |
 | `pro-hard51` | `copilot-opus` | `copilot-cli` | Default | claude-opus-5.5 | 2026-11-19 | 51 | 46 | 5 | 0 | 0 | 0 | 90% | 4,081 (≈ $41) | 7.2 h | 1.2 h |
 | `pro-hard51` | `copilot-opus` | `copilot-cli` | Default | claude-opus-5.5 | 2026-11-19 | 51 | 47 | 4 | 0 | 0 | 0 | 92% | 3,951 (≈ $40) | 7.0 h | 1.1 h |
 | `pro-hard51` | `copilot-opus` | `copilot-cli` | Default | claude-opus-5.5 | 2026-11-19 | 51 | 47 | 4 | 0 | 1 | 0 | 92% | 3,828 (≈ $38) | 7.3 h | 1.7 h |
@@ -148,6 +151,7 @@ resolved 86%.
 | `pro-hard51` | `20261119T124818Z-1`, `20261119T132501Z-1`, `20261119T132530Z-1` | version 1.0.107, effort high | 3.6 min, 3.9 min, 3.6 min |
 | `pro-hard51` | `20261119T202751Z-1`, `20261119T203120Z-1`, `20261119T203425Z-1` | version 1.0.107, effort high, `hve_core_commit` 55352bb | 13.9 min, 14.0 min, 13.4 min |
 | `pro-hard51` | `20261122T041957Z-1`, `20261122T042311Z-1`, `20261122T054328Z-1` | version 1.0.107, effort high | 7.0 min, 7.9 min, 7.0 min |
+| `pro-hard51` | `20261123T213451Z-1`, `20261123T213728Z-1`, `20261123T214042Z-1` | version 1.0.107, `fusion_tier` max | 8.3 min, 9.0 min, 8.3 min |
 | `pro-hard51-rerun113` | `20261103T120000Z-1` | version 1.0.105, effort high, no credit cap | 1.2 min |
 
 - In `pro-hard51`, Copilot CLI never started on 10 trials (#113), which count as
@@ -156,8 +160,8 @@ resolved 86%.
   three at a time. The jobs at version 1.0.105 ran on Modal.
 - Tasks resolved in all three runs, and in at least one: `copilot-opus` 45 and
   48, `copilot-gpt-6.1-sol` 41 and 46, `copilot-fusion-high` 38 and 43,
-  `copilot-sonnet` 37 and 43, `hve-sol` 42 and 45, and `copilot-mai-code-2` 37
-  and 46.
+  `copilot-sonnet` 37 and 43, `hve-sol` 42 and 45, `copilot-mai-code-2` 37 and
+  46, and `copilot-fusion-max` 43 and 45.
 - Four `copilot-gpt-6.1-sol` trials and eight `copilot-fusion-high` trials
   record no test result. Each patch applied and the tests the task needs ran,
   but none of them passed, so they count as unresolved.
@@ -170,6 +174,9 @@ resolved 86%.
 - Two `copilot-mai-code-2` trials, of `flipt-2ca5dfb` and `flipt-3d5a345`,
   record no test result. Each patch applied, but none of the tests the task
   needs reported, so they count as unresolved.
+- Three `copilot-fusion-max` trials, all of `tutanota-f373ac3`, record no test
+  result. Each patch applied, but none of the tests the task needs reported, so
+  they count as unresolved.
 
 ### `senior`
 
