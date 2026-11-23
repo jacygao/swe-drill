@@ -956,6 +956,97 @@
    },
    "models": null
   },
+  "copilot-fusion-max": {
+   "runs": [
+    {
+     "job": "20261123T213451Z-1",
+     "resolved": 45,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 8255
+    },
+    {
+     "job": "20261123T213728Z-1",
+     "resolved": 44,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 7996
+    },
+    {
+     "job": "20261123T214042Z-1",
+     "resolved": 44,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 7884
+    }
+   ],
+   "tasks": {
+    "always": 43,
+    "sometimes": [
+     "internetarchive__openlibrary-b67138b",
+     "protonmail__webclients-e65cc5f"
+    ],
+    "never": [
+     "ansible__ansible-40ade1f",
+     "flipt-io__flipt-3d5a345",
+     "flipt-io__flipt-c188284",
+     "flipt-io__flipt-cd18e54",
+     "internetarchive__openlibrary-7cbfb81",
+     "tutao__tutanota-f373ac3"
+    ]
+   },
+   "only": [],
+   "missed": [],
+   "failures": {
+    "Tests failed": 17,
+    "No test result": 3
+   },
+   "tokens": {
+    "median": 1317146,
+    "top": [
+     {
+      "task": "flipt-io__flipt-524f277",
+      "value": 6593531
+     },
+     {
+      "task": "tutao__tutanota-f373ac3",
+      "value": 5555258
+     },
+     {
+      "task": "protonmail__webclients-715dbd4",
+      "value": 5186848
+     }
+    ]
+   },
+   "minutes": {
+    "median": 8.8,
+    "top": [
+     {
+      "task": "element-hq__element-web-5dfde12",
+      "value": 36.0
+     },
+     {
+      "task": "future-architect__vuls-e1fab80",
+      "value": 32.8
+     },
+     {
+      "task": "gravitational__teleport-65438e6",
+      "value": 30.9
+     }
+    ]
+   },
+   "models": {
+    "gpt-6.2-astra": 60,
+    "claude-opus-5.5 + gpt-6-astra + gpt-6.2-sol": 20,
+    "claude-opus-5.5": 20,
+    "claude-opus-5.5 + gpt-6-sol": 19,
+    "claude-opus-5.5 + gpt-6-astra + gpt-6-sol": 15,
+    "gpt-6-astra": 11,
+    "claude-opus-5.5 + gpt-6-luna": 6,
+    "claude-opus-5.5 + gpt-6.2-sol": 1,
+    "claude-opus-5.5 + claude-sonnet-5.5 + gpt-6-astra + gpt-6-sol": 1
+   }
+  },
   "hve-sol": {
    "runs": [
     {
@@ -1257,8 +1348,7 @@
    "only": [],
    "missed": [
     "internetarchive__openlibrary-0dc5b20",
-    "protonmail__webclients-c5a2089",
-    "tutao__tutanota-f373ac3"
+    "protonmail__webclients-c5a2089"
    ],
    "failures": {
     "Tests failed": 23,

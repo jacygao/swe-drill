@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-22",
+  "updated": "2026-11-24",
   "rebench": {
     "title": "rebench",
     "about": "SWE-rebench’s July 2026 snapshot: 108 GitHub issues from open-source repositories, each graded by its own hidden tests. Every arm runs the same tasks, graded the same way.",
@@ -334,14 +334,15 @@
       ]
     },
     "scatter": {
-      "maxCost": 65,
+      "maxCost": 90,
       "yLo": 0.76,
       "ySpan": 0.18,
       "xTicks": [
         0,
         20,
         40,
-        60
+        60,
+        80
       ],
       "yLabels": [
         "94%",
@@ -392,6 +393,49 @@
         ]
       },
       {
+        "name": "copilot-fusion-max",
+        "agent": "Copilot CLI 1.0.107",
+        "harness": "Default",
+        "model": "Fusion, tier max",
+        "rate": 0.8693,
+        "margin": 0.0915,
+        "pass": 0.8824,
+        "timedOut": 0,
+        "cost": 80.45,
+        "hours": 8.57,
+        "tokens": 1317000,
+        "where": "Docker · Azure",
+        "params": "version 1.0.107, fusion_tier max",
+        "runs": [
+          {
+            "job": "20261123T213451Z-1",
+            "date": "2026-11-23",
+            "where": "Docker on Azure, Korea Central",
+            "median": 8.3
+          },
+          {
+            "job": "20261123T213728Z-1",
+            "date": "2026-11-23",
+            "where": "Docker on Azure, Australia East",
+            "median": 9.0
+          },
+          {
+            "job": "20261123T214042Z-1",
+            "date": "2026-11-23",
+            "where": "Docker on Azure, New Zealand North",
+            "median": 8.3
+          }
+        ],
+        "note": "The three runs ran at once, one Azure region each, and no trial needed running again. A first attempt was stopped after a few minutes and kept no record. 43 tasks were resolved in all three runs, and 45 in at least one. Three trials, all of tutanota-f373ac3, record no test result: each patch applied, but none of the tests the task needs reported, so they count as unresolved.",
+        "takeaways": [
+          "It resolved 87%, second only to Opus’s 92%, at $80.45 a run, the most of any arm and twice Opus’s cost.",
+          "It resolved 7 points more than Fusion high, at 3.6× the cost and in 59% of the agent time.",
+          "Fusion gave 60 of its 153 trials to gpt-6.2-astra alone, which resolved 82% of them. The 82 trials that used claude-opus-5.5 resolved 90%.",
+          "Only 2 tasks changed outcome between its runs, the fewest on this lane.",
+          "Its three untested trials are all tutao__tutanota-f373ac3: each patch applied, but none of the task’s tests reported."
+        ]
+      },
+      {
         "name": "hve-sol",
         "agent": "Copilot CLI 1.0.107",
         "harness": "hve-core RPI Agent",
@@ -429,7 +473,7 @@
         "takeaways": [
           "On the same model, hve-core’s RPI Agent resolved 86% to plain Copilot CLI’s 85%, a gap well inside the noise.",
           "It cost $61.38 a run, 3.2× plain GPT-6.1 Sol, and used a median of 5.3M tokens a trial, about 6× as many and the most of any arm.",
-          "Only 3 tasks changed outcome between its runs, tied with Opus for the fewest on this lane.",
+          "Only 3 tasks changed outcome between its runs, as for Opus, one more than Fusion max.",
           "Its three untested trials are all navidrome__navidrome-69e0a26: each patch applied, but the task’s test never reported."
         ]
       },
