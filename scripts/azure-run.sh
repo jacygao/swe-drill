@@ -25,6 +25,11 @@
 # single model call. A trial that timed out, or failed after the agent did any
 # work, is never run again. The trials set aside go to
 # logs/azure-<region>-<arm>-retried/.
+#
+# RESUME=results/<lane>/<arm>/<job> runs no new job. That job, copied whole from
+# this checkout, has those same trials run again on the VM, inside the job, and is
+# uploaded back with them. Each trial set aside is then removed from the
+# container, and kept under logs/azure-<region>-<arm>-retried/.
 set -euo pipefail
 
 region=$1 arm=$2 lane=$3 check=${4:-}
@@ -37,6 +42,17 @@ rg="suss-run-$region"
 log() { printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "$region" "$*"; }
 
 [ -f "$checkout/swe-drill.toml" ] && [ -f "$checkout/.env" ] || { echo "run from a SWE-drill checkout with a .env" >&2; exit 2; }
+resume=${RESUME:-}
+resume=${resume%/}
+if [ -n "$resume" ]; then
+  case $resume in
+    "results/$lane/$arm/"*/*|*..*) echo "RESUME is $resume, not results/$lane/$arm/<job>" >&2; exit 2 ;;
+    "results/$lane/$arm/"?*) ;;
+    *) echo "RESUME is $resume, not results/$lane/$arm/<job>" >&2; exit 2 ;;
+  esac
+  [ -f "$checkout/$resume/config.json" ] || { echo "$resume: no job here; copy it whole from storage first" >&2; exit 2; }
+  [ -z "$check" ] || { echo "RESUME resumes a job of the lane, never a check" >&2; exit 2; }
+fi
 
 from_env=$(grep -s '^SWE_DRILL_RUNS_URL=' "$checkout/.env" | tail -1 | cut -d= -f2- || true)
 runs_url=${SWE_DRILL_RUNS_URL:-$from_env}
@@ -197,6 +213,11 @@ git -C "$checkout" ls-files -z | rsync_ --from0 --files-from=- "$checkout/" "azu
 ssh_ "mkdir -p swe-drill/$(printf %q "$download")" < /dev/null
 rsync_ "$checkout/$download/" "azureuser@$ip:swe-drill/$download/"
 ssh_ 'umask 077; cat > swe-drill/.env' < "$checkout/.env"
+if [ -n "$resume" ]; then
+  log "copying $resume"
+  ssh_ "mkdir -p swe-drill/$(printf %q "$resume")" < /dev/null
+  rsync_ "$checkout/$resume/" "azureuser@$ip:swe-drill/$resume/"
+fi
 
 ssh_ bash -s "$lane" <<'EOF'
 set -e
@@ -340,8 +361,13 @@ cd ~/swe-drill
 retries=$1
 url=$2
 shift 2
-~/.local/bin/uv run swe-drill run "$@" > ~/run.log 2>&1
-code=$?
+if [ -n "$RESUME" ]; then
+  : > ~/run.log
+  code=0
+else
+  ~/.local/bin/uv run swe-drill run "$@" > ~/run.log 2>&1
+  code=$?
+fi
 if ! ~/.local/bin/uv run python ~/retry.py "$retries" "$@" >> ~/run.log 2>&1; then
   echo "azure-run: the retry failed; its output is above" >> ~/run.log
   [ "$code" -ne 0 ] || code=1
@@ -359,6 +385,14 @@ if [ -n "$url" ]; then
     [ -z "$ok" ] || break
     sleep 60
   done
+  if [ -n "$ok" ] && [ -n "$RESUME" ]; then
+    # The resumed job's set-aside trials are still in the container from its first upload.
+    for trial in ~/retried/*/results/*/*/*/*/; do
+      [ -d "$trial" ] || continue
+      path=${trial#"$HOME"/retried/*/}
+      azcopy remove "$url/${path%/}" --recursive --log-level ERROR --output-level essential >> ~/upload.log 2>&1 || ok=
+    done
+  fi
   if [ -n "$ok" ]; then
     echo "UPLOAD ok" >> ~/run.log
   else
@@ -371,7 +405,7 @@ EOF
 
 log "swe-drill run $arm $lane $check, retrying up to $retries times"
 launched=1
-ssh_ "tmux new -d -s run 'bash ~/run.sh $retries \"$runs_url\" $arm $lane $check'" < /dev/null
+ssh_ "tmux new -d -s run 'RESUME=$(printf %q "$resume") bash ~/run.sh $retries \"$runs_url\" $arm $lane $check'" < /dev/null
 started=$(date +%s)
 # SSH exits 255 when it cannot reach the VM, and grep 1 or 2 while the run goes on.
 unreachable=0
