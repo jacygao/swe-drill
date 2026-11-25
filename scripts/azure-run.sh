@@ -29,7 +29,8 @@
 # RESUME=results/<lane>/<arm>/<job> runs no new job. That job, copied whole from
 # this checkout, has those same trials run again on the VM, inside the job, and is
 # uploaded back with them. Each trial set aside is then removed from the
-# container, and kept under logs/azure-<region>-<arm>-retried/.
+# container, and from this checkout's copy of the job, and kept under
+# logs/azure-<region>-<arm>-retried/.
 set -euo pipefail
 
 region=$1 arm=$2 lane=$3 check=${4:-}
@@ -43,8 +44,8 @@ log() { printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "$region" "$*"; }
 
 [ -f "$checkout/swe-drill.toml" ] && [ -f "$checkout/.env" ] || { echo "run from a SWE-drill checkout with a .env" >&2; exit 2; }
 resume=${RESUME:-}
-resume=${resume%/}
 if [ -n "$resume" ]; then
+  resume=${resume%/}
   case $resume in
     "results/$lane/$arm/"*/*|*..*) echo "RESUME is $resume, not results/$lane/$arm/<job>" >&2; exit 2 ;;
     "results/$lane/$arm/"?*) ;;
@@ -145,6 +146,15 @@ copy_back() {
       *) if [ -n "$copy_all" ] || [ -z "$uploaded" ]; then rsync_ "azureuser@$ip:swe-drill/$dir" "$checkout/" || return 1; fi ;;
     esac
   done
+  # A resumed job's set-aside trials are still in this checkout's copy of it, beside their replacements.
+  if [ -n "$resume" ]; then
+    local kept trial
+    for kept in "$checkout/logs/azure-$region-$arm-retried"/*/"$resume"/*/; do
+      [ -d "$kept" ] || continue
+      trial="$checkout/$resume/$(basename "$kept")"
+      [ ! -d "$trial" ] || rm -rf "$trial"
+    done
+  fi
   copied=1
 }
 
@@ -362,13 +372,23 @@ retries=$1
 url=$2
 shift 2
 if [ -n "$RESUME" ]; then
-  : > ~/run.log
-  code=0
+  # The job's tasks are the lane's build, which only `swe-drill run` otherwise makes.
+  ~/.local/bin/uv run python - "$1" "$2" > ~/run.log 2>&1 <<'PY'
+import sys
+from pathlib import Path
+from swe_drill import config, lanes
+arm, lane = sys.argv[1], sys.argv[2]
+settings = config.load(Path("swe-drill.toml"), arm, lane)
+lanes.build(lane, settings.download(lane), Path("lanes").resolve())
+PY
+  code=$?
 else
   ~/.local/bin/uv run swe-drill run "$@" > ~/run.log 2>&1
   code=$?
 fi
-if ! ~/.local/bin/uv run python ~/retry.py "$retries" "$@" >> ~/run.log 2>&1; then
+if [ -n "$RESUME" ] && [ "$code" -ne 0 ]; then
+  echo "azure-run: the lane did not build, so $RESUME was not resumed" >> ~/run.log
+elif ! ~/.local/bin/uv run python ~/retry.py "$retries" "$@" >> ~/run.log 2>&1; then
   echo "azure-run: the retry failed; its output is above" >> ~/run.log
   [ "$code" -ne 0 ] || code=1
 fi
