@@ -1022,6 +1022,7 @@ def test_squiz_installs_node_built_for_musl_on_an_image_built_on_musl(box, local
         f"node-v24.15.0-linux-{node_arch()}-musl.tar.gz"
     )
     assert "node_libraries" in asked, "Node's musl build links libstdc++ and libgcc, which Alpine leaves out"
+    assert "procps" in asked, "squiz runs ps -p, which Alpine's busybox ps lacks"
     assert the_agent.squiz_installed == SQUIZ_VERSION
     node = box / "sandbox" / "home" / ".local" / "share" / "swe-drill" / "node-v24.15.0" / "bin" / "node"
     assert str(node) in (squiz_plugin(box) / "bin" / "squiz").read_text()

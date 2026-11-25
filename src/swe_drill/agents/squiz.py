@@ -70,6 +70,8 @@ class CopilotCliSquiz(CopilotCli):
         ),
         # Node's musl build links the C++ runtime, which glibc images carry and Alpine leaves out.
         "node_libraries": PackageSpec(commands=(), packages={"apk": ("libstdc++", "libgcc")}, always_install=True),
+        # Alpine's `ps` is busybox's, which has no -p, so the check for "ps" finds one squiz cannot use.
+        "procps": PackageSpec(commands=(), packages={"apk": ("procps",)}, always_install=True),
     }
 
     def __init__(self, *, squiz_version: Any, reviewer_model: Any = None, reviewer_effort: Any = None, **kwargs: Any):
@@ -123,7 +125,7 @@ class CopilotCliSquiz(CopilotCli):
         plugin = f"{home}/.local/share/squiz/{self.squiz_version}"
         musl = (await environment.exec(f"ls {MUSL_LOADERS} >/dev/null 2>&1")).return_code == 0
         if musl:
-            await self.ensure_system_dependencies(environment, ("node_libraries",))
+            await self.ensure_system_dependencies(environment, ("node_libraries", "procps"))
         site = NODE_MUSL_SITE if musl else NODE_SITE
         suffix = "-musl" if musl else ""
         checksums = " ".join(f"{build}) want={digest};;" for build, digest in NODE_SHA256.items())
