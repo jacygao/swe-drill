@@ -613,7 +613,7 @@ printf '{"threads": []}' > .squiz/local/threads.json
 printf '2 rounds, 1 finding' > .squiz/local/summary.md
 printf '{"head": "0e7db84", "exitStatus": 0, "openThreads": []}' > .squiz/local/closed.json
 """
-# Serves nodejs.org's archive or squiz's from the test's own, by the URL.
+# Serves Node's archive, from either of the hosts Node publishes on, or squiz's, from the test's own, by the URL.
 SQUIZ_CURL = """#!/bin/sh
 here=$(dirname "$0")
 while [ $# -gt 1 ]; do
@@ -622,7 +622,7 @@ while [ $# -gt 1 ]; do
 done
 echo "$1" >> "$here/curl.urls"
 case "$1" in
-    https://nodejs.org/*) cp "$here/node.tar.gz" "$out" ;;
+    https://nodejs.org/*|https://unofficial-builds.nodejs.org/*) cp "$here/node.tar.gz" "$out" ;;
     *) cp "$here/squiz.tar.gz" "$out" ;;
 esac
 """
@@ -656,10 +656,19 @@ def node_arch() -> str:
     return {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine().lower()]
 
 
-def publish_squiz(box: Path, monkeypatch, version: str = SQUIZ_VERSION) -> None:
-    """Make the archives of Node and of squiz the stand-in curl serves, and pin the stand-in Node's checksum."""
+def publish_squiz(box: Path, monkeypatch, version: str = SQUIZ_VERSION, musl: bool = False) -> None:
+    """
+    Make the archives of Node and of squiz the stand-in curl serves, and pin the stand-in Node's checksum.
+    With `musl`, the sandbox is an image built on musl, as Alpine is, and Node's archive is the one for musl.
+    """
+    flavor = f"{node_arch()}-musl" if musl else node_arch()
+    if musl:
+        loader = box / "musl" / f"ld-musl-{platform.machine()}.so.1"
+        loader.parent.mkdir()
+        loader.touch()
+        monkeypatch.setattr(squiz_agent_module, "MUSL_LOADERS", str(loader.parent / "ld-musl-*"))
     archives = box / "squiz-archives"
-    node = archives / f"node-v24.15.0-linux-{node_arch()}"
+    node = archives / f"node-v24.15.0-linux-{flavor}"
     (node / "bin").mkdir(parents=True)
     (node / "bin" / "node").write_text(FAKE_NODE)
     (node / "bin" / "node").chmod(0o755)
@@ -677,7 +686,7 @@ def publish_squiz(box: Path, monkeypatch, version: str = SQUIZ_VERSION) -> None:
     with tarfile.open(bin_dir(box) / "squiz.tar.gz", "w:gz") as archive:
         archive.add(root, arcname=root.name)
     digest = hashlib.sha256((bin_dir(box) / "node.tar.gz").read_bytes()).hexdigest()
-    monkeypatch.setattr(squiz_agent_module, "NODE_SHA256", {node_arch(): digest})
+    monkeypatch.setattr(squiz_agent_module, "NODE_SHA256", {flavor: digest})
     for name, text in (("copilot", SQUIZ_COPILOT), ("curl", SQUIZ_CURL), ("sha256sum", SHA256SUM)):
         (bin_dir(box) / name).write_text(text.replace("PYTHON", sys.executable))
         (bin_dir(box) / name).chmod(0o755)
@@ -993,6 +1002,29 @@ def test_squiz_installs_node_and_squiz_at_their_pinned_versions(box, local_envir
     node = box / "sandbox" / "home" / ".local" / "share" / "swe-drill" / "node-v24.15.0" / "bin" / "node"
     assert str(node) in shim, "squiz would run on whatever node is on PATH"
     assert (bin_dir(box) / "squiz").resolve() == (squiz_plugin(box) / "bin" / "squiz").resolve()
+
+
+# nodejs.org builds no Node for musl, which Alpine images are built on.
+def test_squiz_installs_node_built_for_musl_on_an_image_built_on_musl(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch, musl=True)
+    asked = []
+
+    async def recording(self, environment, dependencies):
+        asked.extend(dependencies)
+
+    monkeypatch.setattr(HarborCopilotCli, "ensure_system_dependencies", recording)
+    the_agent = squiz_agent(box)
+
+    go(the_agent.setup(local_environment))
+
+    assert (bin_dir(box) / "curl.urls").read_text().splitlines()[0] == (
+        "https://unofficial-builds.nodejs.org/download/release/v24.15.0/"
+        f"node-v24.15.0-linux-{node_arch()}-musl.tar.gz"
+    )
+    assert "node_libraries" in asked, "Node's musl build links libstdc++ and libgcc, which Alpine leaves out"
+    assert the_agent.squiz_installed == SQUIZ_VERSION
+    node = box / "sandbox" / "home" / ".local" / "share" / "swe-drill" / "node-v24.15.0" / "bin" / "node"
+    assert str(node) in (squiz_plugin(box) / "bin" / "squiz").read_text()
 
 
 def test_squizs_node_stays_off_the_agents_path(box, local_environment, monkeypatch):

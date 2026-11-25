@@ -13,11 +13,18 @@ from swe_drill.agents import copilot_cli
 from swe_drill.agents.copilot_cli import CopilotCli, fetch
 
 NODE_VERSION = "24.15.0"
-# The sha256 of nodejs.org's archive of NODE_VERSION for each architecture, as its SHASUMS256.txt gives it.
+# The sha256 of Node's archive of NODE_VERSION for each build, as the SHASUMS256.txt beside it gives it.
+# nodejs.org builds only for glibc, so the builds for musl are its unofficial-builds site's.
 NODE_SHA256 = {
     "x64": "44836872d9aec49f1e6b52a9a922872db9a2b02d235a616a5681b6a85fec8d89",
     "arm64": "73afc234d558c24919875f51c2d1ea002a2ada4ea6f83601a383869fefa64eed",
+    "x64-musl": "f55af5bd489c5347b113ca6594cae00a54b30ba57ac5875324311bfc6f4762e3",
+    "arm64-musl": "31e98aa960a067da91edffd5d93bc46657b5d2a8029612c359f5f2ac0060152a",
 }
+NODE_SITE = "https://nodejs.org/dist"
+NODE_MUSL_SITE = "https://unofficial-builds.nodejs.org/download/release"
+# An image whose C library is musl, as Alpine's is, has its dynamic loader here.
+MUSL_LOADERS = "/lib/ld-musl-*"
 EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+")
 # The first squiz that keeps a round's findings when its state lock is slow to take, as on a loaded machine.
 # Its reviewer also signs in from `copilotTokenFile`, since Copilot CLI gives its hooks no token.
@@ -61,6 +68,8 @@ class CopilotCliSquiz(CopilotCli):
             commands=("ps",),
             packages={"apt-get": ("procps",), "dnf": ("procps-ng",), "yum": ("procps-ng",), "apk": ("procps",)},
         ),
+        # Node's musl build links the C++ runtime, which glibc images carry and Alpine leaves out.
+        "node_libraries": PackageSpec(commands=(), packages={"apk": ("libstdc++", "libgcc")}, always_install=True),
     }
 
     def __init__(self, *, squiz_version: Any, reviewer_model: Any = None, reviewer_effort: Any = None, **kwargs: Any):
@@ -112,22 +121,27 @@ class CopilotCliSquiz(CopilotCli):
         home = ((await self.exec_as_agent(environment, 'printf %s "$HOME"')).stdout or "").strip()
         node = f"{home}/.local/share/swe-drill/node-v{NODE_VERSION}"
         plugin = f"{home}/.local/share/squiz/{self.squiz_version}"
-        checksums = " ".join(f"{arch}) want={digest};;" for arch, digest in NODE_SHA256.items())
+        musl = (await environment.exec(f"ls {MUSL_LOADERS} >/dev/null 2>&1")).return_code == 0
+        if musl:
+            await self.ensure_system_dependencies(environment, ("node_libraries",))
+        site = NODE_MUSL_SITE if musl else NODE_SITE
+        suffix = "-musl" if musl else ""
+        checksums = " ".join(f"{build}) want={digest};;" for build, digest in NODE_SHA256.items())
         await self.exec_as_agent(
             environment,
             f"set -e; {fetch()}fail() {{ echo \"$1\"; exit 1; }}; "
             'case "$(uname -m)" in x86_64|amd64) arch=x64;; aarch64|arm64) arch=arm64;; '
-            '*) fail "nodejs.org builds no Node for $(uname -m)";; esac; '
-            "if ls /lib/ld-musl-* >/dev/null 2>&1; then fail 'nodejs.org builds no Node for musl'; fi; "
-            f'case "$arch" in {checksums} *) fail "no checksum is pinned for Node on $arch";; esac; '
+            '*) fail "Node publishes no build for $(uname -m)";; esac; '
+            f'build="$arch{suffix}"; '
+            f'case "$build" in {checksums} *) fail "no checksum is pinned for Node on $build";; esac; '
             "dir=$(mktemp -d); trap 'rm -rf \"$dir\"' EXIT; cd \"$dir\"; "
             "fetch node.tar.gz"
-            f' "https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-linux-$arch.tar.gz"; '
+            f' "{site}/v{NODE_VERSION}/node-v{NODE_VERSION}-linux-$build.tar.gz"; '
             "sum=$(sha256sum node.tar.gz | cut -d ' ' -f 1); "
             f'[ "$sum" = "$want" ] || fail "the archive of Node {NODE_VERSION} has checksum $sum, not $want"; '
             "mkdir unpacked; tar -xzf node.tar.gz -C unpacked; "
             f"mkdir -p {shlex.quote(node.rsplit('/', 1)[0])}; rm -rf {shlex.quote(node)}; "
-            f'mv "unpacked/node-v{NODE_VERSION}-linux-$arch" {shlex.quote(node)}',
+            f'mv "unpacked/node-v{NODE_VERSION}-linux-$build" {shlex.quote(node)}',
         )
         source = f"squiz-{self.squiz_version}"
         archive = f"https://codeload.github.com/jacygao/squiz/tar.gz/refs/tags/v{self.squiz_version}"
