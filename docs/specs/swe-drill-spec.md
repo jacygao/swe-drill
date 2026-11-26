@@ -288,8 +288,9 @@ parses its output into `trajectory.json`, and records its tokens in
 
 - The patch is taken against the repository as it was before the agent
   installed.
-- When the run ends, every process in the sandbox that one of the agent's
-  commands started is killed, whatever session or process group it moved to.
+- When the run ends, every process in the sandbox whose environment carries
+  the agent phase's `SWE_DRILL_START_TOKEN` is killed, whatever session or
+  process group it moved to.
 - The patch is captured and `suss.json` written however the run ends.
 - It takes `arm`, `lane` and `drill_config` as `--ak`, and reads the arm's
   settings and the `.env` from that `swe-drill.toml` when Harbor constructs it,
