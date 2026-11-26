@@ -92,8 +92,8 @@ Harbor starts in the same agent job once the agent's sandbox has stopped.
 
 ### Capturing the patch
 
-The patch is a binary git diff from the starting tree to everything in the
-workspace, written to `/logs/agent/model.patch` and copied to
+The patch is a binary git diff from the starting tree to every file in the
+workspace that git does not ignore, written to `/logs/agent/model.patch` and copied to
 `/logs/artifacts/model.patch`. It holds the whole change the agent made,
 whether it committed it or not, and none of the changes the image already had,
 and it applies in the verifier's sandbox, which starts from the same image. A
