@@ -39,6 +39,11 @@
   // The agent's name without its version, which the arm's params already give.
   function agentName(arm) { return arm.agent.replace(/\s+[\d.]+$/, ""); }
 
+  // Arms with the same resolved rate share a rank, so the order among them claims no gap.
+  function rankOf(arms, arm) {
+    return 1 + arms.filter(function (a) { return a.rate > arm.rate; }).length;
+  }
+
   // The value most of the lane's arms share, so that only an arm that differs is marked.
   function usual(arms, key) {
     var counts = {};
@@ -91,7 +96,7 @@
     var rows = arms.map(function (arm, i) {
       var selected = arm.name === picked;
       return el("tr", { class: selected ? "selected" : "" }, [
-        el("td", { class: "rank" }, [el("span", { class: "badge" + (i === 0 ? " first" : ""), text: String(i + 1) })]),
+        el("td", { class: "rank" }, [el("span", { class: "badge" + (rankOf(arms, arm) === 1 ? " first" : ""), text: String(rankOf(arms, arm)) })]),
         el("td", {}, [el("button", { type: "button", class: "arm-btn", "data-arm": arm.name, "aria-pressed": String(selected), on: { click: function () { pick(arm.name); } } }, [
           el("span", { class: "arm-line" }, [el("span", { class: "arm-name", text: arm.name })].concat(chips(arm, arms))),
           el("span", { class: "arm-sub", text: agentName(arm) + " · " + arm.model })
@@ -114,7 +119,7 @@
       var selected = arm.name === picked;
       return el("li", {}, [el("button", { type: "button", class: "acard" + (selected ? " selected" : ""), "data-arm": arm.name, "aria-pressed": String(selected), on: { click: function () { pick(arm.name); } } }, [
         el("span", { class: "acard-top" }, [
-          el("span", { class: "badge" + (i === 0 ? " first" : ""), text: String(i + 1) }),
+          el("span", { class: "badge" + (rankOf(arms, arm) === 1 ? " first" : ""), text: String(rankOf(arms, arm)) }),
           el("span", { class: "who" }, [el("span", { class: "arm-line" }, [el("span", { class: "arm-name", text: arm.name })].concat(chips(arm, arms))), el("span", { class: "arm-sub", text: arm.model })]),
           el("span", { class: "big", text: pct(arm.rate), title: rateText(arm) })
         ]),
@@ -204,9 +209,10 @@
   }
 
   function drawArmHero(lane, arm) {
-    var rank = lane.arms.indexOf(arm) + 1;
+    var rank = rankOf(lane.arms, arm);
+    var tied = lane.arms.some(function (a) { return a !== arm && a.rate === arm.rate; });
     var facts = [
-      "#" + rank + " of " + lane.arms.length,
+      (tied ? "Joint #" : "#") + rank + " of " + lane.arms.length,
       pct(arm.rate) + (arm.margin != null ? " ±" + Math.round(arm.margin * 100) : "") + " resolved",
       "pass@k " + passText(arm),
       money(arm.cost) + " a run"

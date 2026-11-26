@@ -393,49 +393,6 @@
         ]
       },
       {
-        "name": "copilot-fusion-max",
-        "agent": "Copilot CLI 1.0.107",
-        "harness": "Default",
-        "model": "Fusion, tier max",
-        "rate": 0.8693,
-        "margin": 0.0915,
-        "pass": 0.8824,
-        "timedOut": 0,
-        "cost": 80.45,
-        "hours": 8.57,
-        "tokens": 1317000,
-        "where": "Docker · Azure",
-        "params": "version 1.0.107, fusion_tier max",
-        "runs": [
-          {
-            "job": "20261123T213451Z-1",
-            "date": "2026-11-23",
-            "where": "Docker on Azure, Korea Central",
-            "median": 8.3
-          },
-          {
-            "job": "20261123T213728Z-1",
-            "date": "2026-11-23",
-            "where": "Docker on Azure, Australia East",
-            "median": 9.0
-          },
-          {
-            "job": "20261123T214042Z-1",
-            "date": "2026-11-23",
-            "where": "Docker on Azure, New Zealand North",
-            "median": 8.3
-          }
-        ],
-        "note": "The three runs ran at once, one Azure region each, and no trial needed running again. A first attempt was stopped after a few minutes and kept no record. 43 tasks were resolved in all three runs, and 45 in at least one. Three trials, all of tutanota-f373ac3, record no test result: each patch applied, but none of the tests the task needs reported, so they count as unresolved.",
-        "takeaways": [
-          "It resolved 87%, tied with squiz behind Opus’s 92%, at $80.45 a run, the most of any arm and twice Opus’s cost.",
-          "It resolved 7 points more than Fusion high, at 3.6× the cost and in 59% of the agent time.",
-          "Fusion gave 60 of its 153 trials to gpt-6.2-astra alone, which resolved 82% of them. The 82 trials that used claude-opus-5.5 resolved 90%.",
-          "Only 2 tasks changed outcome between its runs, tied with squiz for the fewest on this lane.",
-          "Its three untested trials are all tutao__tutanota-f373ac3: each patch applied, but none of the task’s tests reported."
-        ]
-      },
-      {
         "name": "squiz-gpt-6.1-sol",
         "agent": "Copilot CLI 1.0.107",
         "harness": "Peer review (squiz)",
@@ -477,6 +434,49 @@
           "Of its $29.06 a run, the coding agent took $18.80, the reviewer $7.95 and the fixer $2.31. The fixer ran on 15, 12 and 11 trials of the three runs.",
           "Only 2 tasks changed outcome between its runs, tied with Fusion max for the fewest on this lane.",
           "Its three untested trials are all protonmail__webclients-c5a2089: each patch applied, but none of the task’s tests reported."
+        ]
+      },
+      {
+        "name": "copilot-fusion-max",
+        "agent": "Copilot CLI 1.0.107",
+        "harness": "Default",
+        "model": "Fusion, tier max",
+        "rate": 0.8693,
+        "margin": 0.0915,
+        "pass": 0.8824,
+        "timedOut": 0,
+        "cost": 80.45,
+        "hours": 8.57,
+        "tokens": 1317000,
+        "where": "Docker · Azure",
+        "params": "version 1.0.107, fusion_tier max",
+        "runs": [
+          {
+            "job": "20261123T213451Z-1",
+            "date": "2026-11-23",
+            "where": "Docker on Azure, Korea Central",
+            "median": 8.3
+          },
+          {
+            "job": "20261123T213728Z-1",
+            "date": "2026-11-23",
+            "where": "Docker on Azure, Australia East",
+            "median": 9.0
+          },
+          {
+            "job": "20261123T214042Z-1",
+            "date": "2026-11-23",
+            "where": "Docker on Azure, New Zealand North",
+            "median": 8.3
+          }
+        ],
+        "note": "The three runs ran at once, one Azure region each, and no trial needed running again. A first attempt was stopped after a few minutes and kept no record. 43 tasks were resolved in all three runs, and 45 in at least one. Three trials, all of tutanota-f373ac3, record no test result: each patch applied, but none of the tests the task needs reported, so they count as unresolved.",
+        "takeaways": [
+          "It resolved 87%, tied with squiz behind Opus’s 92%, at $80.45 a run, the most of any arm and twice Opus’s cost.",
+          "It resolved 7 points more than Fusion high, at 3.6× the cost and in 59% of the agent time.",
+          "Fusion gave 60 of its 153 trials to gpt-6.2-astra alone, which resolved 82% of them. The 82 trials that used claude-opus-5.5 resolved 90%.",
+          "Only 2 tasks changed outcome between its runs, tied with squiz for the fewest on this lane.",
+          "Its three untested trials are all tutao__tutanota-f373ac3: each patch applied, but none of the task’s tests reported."
         ]
       },
       {
