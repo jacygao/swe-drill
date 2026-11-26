@@ -276,21 +276,21 @@ The agent's own files go there too, such as Copilot CLI's stream,
 ## 4. Agents
 
 An arm names its agent class in `swe-drill.toml` as `module:Class`. SWE-drill
-runs only a class that applies `swe_drill.agents.Adapter` before a Harbor agent class, since
-only such a class leaves the patch its trial is graded by. Harbor's own agent
-then does everything else: it installs the coding agent, runs it, parses its
-output into `trajectory.json`, and records its tokens in `result.json`.
+runs only a class that applies `swe_drill.agents.Adapter` before a Harbor agent
+class, since only such a class leaves the patch its trial is graded by. Harbor's
+own agent then does everything else: it installs the coding agent, runs it,
+parses its output into `trajectory.json`, and records its tokens in
+`result.json`.
 
 ### The mixin
 
 `Adapter` adds to a Harbor agent class what a trial needs:
 
-- It records the base and the starting tree before the agent installs.
-- It sets `SWE_DRILL_START_TOKEN` on every command the agent runs in the agent
-  phase, and when the run ends it kills every process in the sandbox whose environment
-  holds it, as the agent's user, by reading `/proc`. That finds each one
-  whatever session or process group it moved to.
-- It captures the patch and writes `suss.json` however the run ends.
+- The patch is taken against the repository as it was before the agent
+  installed.
+- When the run ends, every process in the sandbox that one of the agent's
+  commands started is killed, whatever session or process group it moved to.
+- The patch is captured and `suss.json` written however the run ends.
 - It takes `arm`, `lane` and `drill_config` as `--ak`, and reads the arm's
   settings and the `.env` from that `swe-drill.toml` when Harbor constructs it,
   so a bad config fails before a sandbox starts.
@@ -303,35 +303,92 @@ A class names, as class attributes, the hosts its agent phase reaches in
 
 ### Agents in this repository
 
-| Agent | Model and kwargs | Hosts | What it does |
+| Agent | Model and kwargs | Hosts | Credential |
 |---|---|---|---|
-| `swe_drill.agents.copilot_cli:CopilotCli` | a model, required; `version`, required; `reasoning_effort`; `fusion_tier` | `api.github.com`, `api.enterprise.githubcopilot.com` | Harbor's `copilot-cli` agent. SWE-drill installs Copilot CLI at `version` from npm's registry, as the binary in `@github/copilot-<platform>`, which needs no Node, and Harbor's agent runs `copilot --prompt=<instruction> --yolo --excluded-tools web_fetch web_search --disable-mcp-server github-mcp-server --model=<model> --effort <reasoning_effort> --output-format=json`, excluding the web tools because the agent phase's network is an allowlist. Where `copilot --help` lists `--usage-output-file`, it also passes `--usage-output-file=/logs/agent/copilot-usage.json`. SWE-drill adds `--disable-builtin-mcps`, `--no-auto-update`, `--disable-client-telemetry`, `--no-ask-user`, `--secret-env-vars COPILOT_GITHUB_TOKEN` and `--excluded-tools web_fetch web_search`. Copilot CLI signs in with the token, and removes it from the environment of every shell and MCP server it starts, so the agent's commands never have it. The model is one of Copilot's own, by the name `--model` takes, and Harbor constructs no agent for one that names a provider, as `anthropic/<model>` does, which Harbor would run against that provider's API. Copilot CLI's commands in the agent phase get `COPILOT_GITHUB_TOKEN` from `.env` and no other token: never `GH_TOKEN` or `GITHUB_TOKEN`, and none from Harbor's environment. Harbor constructs it only when `.env` sets that token. With model `fusion`, Copilot picks the model and effort for each task, refuses `--effort`, and takes `fusion_tier`, one of `standard`, `high` or `max`, which SWE-drill writes as `fusionTier` to `~/.copilot/settings.json` before the agent runs, and never passes to Harbor's agent, which would add it as `--fusion-tier`. SWE-drill refuses `fusion_tier` with any other model. |
-| `swe_drill.agents.hve:CopilotCliHve` | as `CopilotCli`, and `hve_core_commit`, required | as `CopilotCli` | `CopilotCli` as Microsoft's hve-core RPI Agent. Its install also downloads hve-core at `hve_core_commit`, a full 40-digit commit, from `https://codeload.github.com/microsoft/hve-core/tar.gz/<commit>` to `$HOME/.local/share/hve-core/<commit>/`, and fails when the archive holds no `plugin.json`, or that commit's `rpi-agent.agent.md` has no "Full Auto" handoff prompt. It adds `--plugin-dir` with that directory and `--agent hve-core:rpi-agent`, and gives as the prompt the Full Auto prompt, a blank line, then the instruction. `model` and `reasoning_effort` apply to the RPI Agent, and its subagents' own files name theirs. RPI keeps its state in the workspace's `.copilot-tracking/`, which SWE-drill makes a link to `/logs/agent/copilot-tracking/` and adds to `.git/info/exclude`, so it is kept as it is written and stays out of the patch. The trial is `harness-failed`, with Copilot CLI never started, when the workspace already has `.copilot-tracking`, or its own ignore rules keep git from ignoring it. |
-| `swe_drill.agents.squiz:CopilotCliSquiz` | as `CopilotCli`, and `squiz_version`, required, an exact version no earlier than `0.3.3`; `reviewer_model`, a Copilot CLI model name, and `reviewer_effort`, one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, each optional | as `CopilotCli` | `CopilotCli` with squiz reviewing the change in its local venue, with Copilot CLI as reviewer, and the agent's own session answering the review. Its install also installs `ps`, Node 24.15.0 from `https://nodejs.org/dist/`, or on an image built on musl, as Alpine's are, Node's musl build from `https://unofficial-builds.nodejs.org/download/release/` with `libstdc++`, `libgcc` and procps, checked against the archive's pinned sha256, to `$HOME/.local/share/swe-drill/node-v24.15.0/`, and squiz from `https://codeload.github.com/jacygao/squiz/tar.gz/refs/tags/v<squiz_version>` to `$HOME/.local/share/squiz/<squiz_version>/`. It replaces squiz's `bin/squiz` with one that runs that Node, links it as `$HOME/.local/bin/squiz`, and fails when `squiz version` names another version. That Node is on no `PATH`, so the task's own `node` is unchanged. Every Copilot CLI command it starts passes `--experimental`, and the agent's adds `--plugin-dir` with squiz's directory. Before the agent runs, it writes the arm's `COPILOT_GITHUB_TOKEN` to `$HOME/.local/share/swe-drill/copilot-token`, readable by the agent's user alone, and `{"venue": "local", "reviewer": "copilot", "copilotTokenFile": "<that file>"}` to the workspace's `.squiz.json`, with `model` and `thinking` set from `reviewer_model` and `reviewer_effort` where the arm names them. Where it names neither, the reviewer runs on Copilot's own default model and squiz's default effort. It adds `/.squiz.json` and `/.squiz/` to `.git/info/exclude`, so neither is in the patch. The trial is `harness-failed`, with Copilot CLI never started, when the workspace already has either, or its own ignore rules keep git from ignoring either. The agent's run passes `--session-id=<uuid>`, a new UUID each trial. Once Copilot CLI exits, the trial is `harness-failed` where squiz left no `.squiz/local/base.json`. Otherwise SWE-drill runs `squiz review` in the workspace, as the agent's user, and acts on its exit status: 0 or 3, the episode closed, and the trial is `ok`; 2, threads are open; 4, the review ran out of time while its round goes on, and `squiz review` runs again; 1, the trial is `review-stopped`. Any other status is `harness-failed`. On 2 it resumes the agent's session with `copilot --prompt=<squiz review's stdout> --resume=<uuid>` and the agent's own flags, then runs `squiz review` again. A fix that exits non-zero is `harness-failed`. Squiz's round cap ends the loop, and Harbor's agent timeout bounds it. Each review's stdout is kept as `/logs/agent/squiz-loop/<n>.review.txt` and each fix's stream as `<n>.fixer.jsonl`. Once the loop ends it copies `.squiz/local/`, less `objects/`, to `/logs/agent/squiz/`. Copilot CLI gives its hooks no `COPILOT_GITHUB_TOKEN`, so the reviewer signs in from that file, and with no other token. The file is removed before the patch is captured. |
-| `swe_drill.agents.claude_code:ClaudeCode` | a model, required; `version`, required; `reasoning_effort` | `api.anthropic.com` | Harbor's `claude-code` agent, on the owner's Claude subscription. It installs Claude Code at `version` with `https://downloads.claude.ai/claude-code-releases/bootstrap.sh`, and runs `claude --verbose --output-format=stream-json --effort <reasoning_effort> --disallowedTools WebSearch,WebFetch --permission-mode=bypassPermissions --print` with the instruction on its standard input and `ANTHROPIC_MODEL` set to the model, disallowing the web tools because the agent phase's network is an allowlist. The model is Anthropic's own, by the name Claude Code's `--model` takes, such as `claude-sonnet-5-5`, and Harbor constructs no agent for one that names a provider. Claude Code's commands in the agent phase get `CLAUDE_CODE_OAUTH_TOKEN` from `.env`, the token `claude setup-token` makes, and no other credential: never `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_BASE_URL`, and none from Harbor's environment. Harbor constructs it only when `.env` sets that token. |
+| `swe_drill.agents.copilot_cli:CopilotCli` | a Copilot model, by the name Copilot CLI's `--model` takes, required; `version`, an exact version, required; `reasoning_effort`; `fusion_tier`, one of `standard`, `high` and `max`, with model `fusion` only | `api.github.com`, `api.enterprise.githubcopilot.com` | `COPILOT_GITHUB_TOKEN` |
+| `swe_drill.agents.hve:CopilotCliHve` | as `CopilotCli`, and `hve_core_commit`, a full 40-digit commit, required | as `CopilotCli` | as `CopilotCli` |
+| `swe_drill.agents.squiz:CopilotCliSquiz` | as `CopilotCli`, and `squiz_version`, an exact version no earlier than `0.3.3`, required; `reviewer_model`, a Copilot model; `reviewer_effort`, one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max` | as `CopilotCli` | as `CopilotCli` |
+| `swe_drill.agents.claude_code:ClaudeCode` | an Anthropic model, by the name Claude Code's `--model` takes, such as `claude-sonnet-5-5`, required; `version`, required; `reasoning_effort` | `api.anthropic.com` | `CLAUDE_CODE_OAUTH_TOKEN`, the token `claude setup-token` makes, on the owner's Claude subscription |
 
-The Copilot CLI agents record its usage from its stream: in `suss.json`'s
+An agent's commands in the agent phase get its credential from the `.env`
+beside `swe-drill.toml`, and no other: none from Harbor's environment, never
+`GH_TOKEN` or `GITHUB_TOKEN` for a Copilot CLI agent, and never
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_BASE_URL` for Claude
+Code. An arm fails before a sandbox starts when `.env` does not set its
+credential, or when its model names a provider, as `anthropic/<model>` does.
+
+Each agent runs the task's instruction as one prompt, on the arm's model and
+effort, with every permission granted and without its web tools, since the
+agent phase's network is an allowlist. Copilot CLI also runs without its
+built-in MCP servers, never asks the user, updates itself or sends telemetry,
+and removes its token from the environment of every shell and MCP server it
+starts, so the agent's commands never have it. With model `fusion`, Copilot
+picks the model and effort for each task, `fusion_tier` sets its tier, and
+Copilot CLI refuses `reasoning_effort`.
+
+### `CopilotCliHve`
+
+`CopilotCli` as Microsoft's hve-core RPI Agent, from hve-core at
+`hve_core_commit`.
+
+- Its install fails when that commit has no plugin, or its RPI Agent has no
+  "Full Auto" handoff prompt.
+- The agent's prompt is the Full Auto prompt, a blank line, then the
+  instruction. `model` and `reasoning_effort` apply to the RPI Agent, and its
+  subagents' own files name theirs.
+- RPI keeps its state in the workspace's `.copilot-tracking/`, which is kept in
+  the trial's logs as `/logs/agent/copilot-tracking/` as it is written, and is
+  never in the patch.
+- The trial is `harness-failed`, with Copilot CLI never started, when the
+  workspace already has `.copilot-tracking`, or its own ignore rules would put
+  it in the patch.
+
+### `CopilotCliSquiz`
+
+`CopilotCli` with squiz reviewing its change in squiz's local venue, Copilot CLI
+as the reviewer, and the agent's own session answering each review. The
+reviewer runs on `reviewer_model` and `reviewer_effort` where the arm names
+them, and otherwise on Copilot's default model and squiz's default effort.
+Squiz's install leaves the task's own `node` unchanged, and fails when the
+installed squiz names another version.
+
+A trial runs like this:
+
+1. The trial is `harness-failed`, with Copilot CLI never started, when the
+   workspace already has `.squiz.json` or `.squiz/`, or its own ignore rules
+   would put either in the patch. Neither is ever in the patch.
+2. The agent runs. The trial is `harness-failed` when squiz recorded no base
+   for its review.
+3. Squiz reviews the change. When the review closes, the trial is `ok`. When
+   threads are open, the agent's session is resumed with the review, and squiz
+   reviews again. A review that runs out of time while its round goes on runs
+   again. A review that fails makes the trial `review-stopped`, and a fix that
+   fails, or any other outcome, `harness-failed`.
+4. Squiz's round cap ends the loop, and Harbor's agent timeout bounds it.
+
+Each review's output is kept as `/logs/agent/squiz-loop/<n>.review.txt`, and
+each fix's stream as `<n>.fixer.jsonl`. Once the loop ends, squiz's own state,
+less its objects, is kept under `/logs/agent/squiz/`. The reviewer signs in
+with the arm's `COPILOT_GITHUB_TOKEN` alone, from a file only the agent's user
+can read, which is removed before the patch is captured.
+
+### Usage
+
+The Copilot CLI agents record Copilot CLI's usage from its stream: in `suss.json`'s
 `usage`, and in Harbor's `agent_result.metadata` for the trial. `ai_credits`
-is the largest `totalNanoAiu` of its `session.usage_checkpoint` events over
-1e9. `reported_models` are the models
-its `model.call_start` events name, and `reported_efforts` the efforts its
-checkpoints name, so a run on a model or effort other than the one asked for
-shows there. Where Copilot CLI wrote `/logs/agent/copilot-usage.json`, Harbor
-takes `agent_result`'s token counts and `cost_usd` from it, and adds it to
-`metadata` as `copilot_usage`. Where neither that file nor Harbor's parse of
-the stream gave token counts, as for a GPT model on a Copilot CLI whose
-`--help` lists no `--usage-output-file`, `agent_result` takes the last
-checkpoint's input, cache-read and output tokens.
+is the AI credits Copilot CLI reported for the session. `reported_models` are
+the models it called, and `reported_efforts` the efforts it reported, so a run
+on a model or effort other than the one asked for shows there. Where Copilot
+CLI wrote `/logs/agent/copilot-usage.json`, Harbor takes `agent_result`'s token counts and
+`cost_usd` from it, and adds it to `metadata` as `copilot_usage`. Where neither
+that file nor Harbor's parse of the stream gave token counts, `agent_result`
+takes the last usage checkpoint's input, cache-read and output tokens.
 
-`CopilotCliSquiz` adds to `ai_credits` the credits of each squiz reviewer
-session, read the same way from the session's `events.jsonl`, and of the fixes.
-A resumed session's checkpoints count on from the agent's, so the fixes cost
-the last fix stream's largest checkpoint less the agent's own. The trial's
-credits are then the whole run's. Where the agent, a reviewer session or the
-last fix reported no credits, as a run stopped before its first checkpoint
-does, that part's `ai_credits` and the trial's are `null`. `usage.squiz`
-breaks them out, with `turns` the number of fixes, and `reported_models` stays
-the coding agent's:
+`CopilotCliSquiz`'s `ai_credits` are the whole run's: the agent's, each
+reviewer session's, and the fixes'. Where any part reported no credits, as a
+run stopped before its first checkpoint does, that part's `ai_credits` and the
+trial's are `null`. `usage.squiz` breaks them out, with `turns` the number of
+fixes, and `reported_models` stays the coding agent's:
 
 ```json
 {
