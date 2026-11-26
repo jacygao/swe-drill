@@ -112,7 +112,7 @@ resolved 98% of `pro-go`, leaving no room to tell harnesses apart. Later, over
 three runs each on plain Copilot CLI, `pro-hard51`, Pro's hardest 51 tasks, was
 resolved 92% by Opus 5.5, 87% by Fusion at tier max, 85% by GPT-6.1 Sol, 83% by
 MAI Code 2, 80% by Fusion at tier high and 79% by Sonnet 5.5. GPT-6.1 Sol as
-hve-core's RPI Agent resolved 86%.
+hve-core's RPI Agent resolved 86%, and with squiz's peer review 87%.
 
 | Lane | Arm | Agent | Harness | Model | Date | Tasks | Resolved | Unresolved | Invalid | Timed out | Harness failed | Resolved share | AI credits | Agent time, sum of trials | Elapsed |
 |---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -140,6 +140,9 @@ hve-core's RPI Agent resolved 86%.
 | `pro-hard51` | `hve-sol` | `copilot-cli` | hve-core RPI Agent | gpt-6.1-sol | 2026-11-19 | 51 | 44 | 7 | 0 | 0 | 0 | 86% | 6,143 (≈ $61) | 12.2 h | 1.5 h |
 | `pro-hard51` | `hve-sol` | `copilot-cli` | hve-core RPI Agent | gpt-6.1-sol | 2026-11-19 | 51 | 42 | 9 | 0 | 0 | 0 | 82% | 6,151 (≈ $62) | 12.2 h | 1.5 h |
 | `pro-hard51` | `hve-sol` | `copilot-cli` | hve-core RPI Agent | gpt-6.1-sol | 2026-11-19 | 51 | 45 | 6 | 0 | 0 | 0 | 88% | 6,118 (≈ $61) | 12.4 h | 1.6 h |
+| `pro-hard51` | `squiz-gpt-6.1-sol` | `copilot-cli` | Peer review by squiz 0.4.1, claude-sonnet-5.5 reviewer | gpt-6.1-sol | 2026-11-25 | 51 | 44 | 7 | 0 | 0 | 0 | 86% | 2,923 (≈ $29) | 8.0 h | 1.8 h |
+| `pro-hard51` | `squiz-gpt-6.1-sol` | `copilot-cli` | Peer review by squiz 0.4.1, claude-sonnet-5.5 reviewer | gpt-6.1-sol | 2026-11-25 | 51 | 45 | 6 | 0 | 0 | 0 | 88% | 2,922 (≈ $29) | 8.1 h | 1.9 h |
+| `pro-hard51` | `squiz-gpt-6.1-sol` | `copilot-cli` | Peer review by squiz 0.4.1, claude-sonnet-5.5 reviewer | gpt-6.1-sol | 2026-11-25 | 51 | 44 | 7 | 0 | 0 | 0 | 86% | 2,874 (≈ $29) | 7.8 h | 1.8 h |
 
 | Lane | Job | Params | Median trial |
 |---|---|---|---:|
@@ -152,6 +155,7 @@ hve-core's RPI Agent resolved 86%.
 | `pro-hard51` | `20261119T202751Z-1`, `20261119T203120Z-1`, `20261119T203425Z-1` | version 1.0.107, effort high, `hve_core_commit` 55352bb | 13.9 min, 14.0 min, 13.4 min |
 | `pro-hard51` | `20261122T041957Z-1`, `20261122T042311Z-1`, `20261122T054328Z-1` | version 1.0.107, effort high | 7.0 min, 7.9 min, 7.0 min |
 | `pro-hard51` | `20261123T213451Z-1`, `20261123T213728Z-1`, `20261123T214042Z-1` | version 1.0.107, `fusion_tier` max | 8.3 min, 9.0 min, 8.3 min |
+| `pro-hard51` | `20261125T073126Z-1`, `20261125T073429Z-1`, `20261125T073757Z-1` | version 1.0.107, effort high, `squiz_version` 0.4.1, `reviewer_model` claude-sonnet-5.5, `reviewer_effort` high | 8.4 min, 8.7 min, 8.5 min |
 | `pro-hard51-rerun113` | `20261103T120000Z-1` | version 1.0.105, effort high, no credit cap | 1.2 min |
 
 - In `pro-hard51`, Copilot CLI never started on 10 trials (#113), which count as
@@ -161,7 +165,7 @@ hve-core's RPI Agent resolved 86%.
 - Tasks resolved in all three runs, and in at least one: `copilot-opus` 45 and
   48, `copilot-gpt-6.1-sol` 41 and 46, `copilot-fusion-high` 38 and 43,
   `copilot-sonnet` 37 and 43, `hve-sol` 42 and 45, `copilot-mai-code-2` 37 and
-  46, and `copilot-fusion-max` 43 and 45.
+  46, `copilot-fusion-max` 43 and 45, and `squiz-gpt-6.1-sol` 43 and 45.
 - Four `copilot-gpt-6.1-sol` trials and eight `copilot-fusion-high` trials
   record no test result. Each patch applied and the tests the task needs ran,
   but none of them passed, so they count as unresolved.
@@ -177,6 +181,16 @@ hve-core's RPI Agent resolved 86%.
 - Three `copilot-fusion-max` trials, all of `tutanota-f373ac3`, record no test
   result. Each patch applied, but none of the tests the task needs reported, so
   they count as unresolved.
+- Three `squiz-gpt-6.1-sol` trials, all of `webclients-c5a2089`, record no test
+  result. Each patch applied, but none of the tests the task needs reported, so
+  they count as unresolved.
+- In each `squiz-gpt-6.1-sol` run, squiz could not install on the 10 tasks
+  whose images are Alpine. Once that was fixed, those 10 ran again inside the
+  same job later that day. Elapsed is the first pass and the rerun added
+  together.
+- `squiz-gpt-6.1-sol`'s cost counts squiz's reviewer and fixer. Of its $29.06 a
+  run, the coding agent took $18.80, the reviewer $7.95 and the fixer $2.31.
+  The fixer ran on 15, 12 and 11 trials of the three runs.
 
 ### `senior`
 

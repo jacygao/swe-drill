@@ -1047,6 +1047,87 @@
     "claude-opus-5.5 + claude-sonnet-5.5 + gpt-6-astra + gpt-6-sol": 1
    }
   },
+  "squiz-gpt-6.1-sol": {
+   "runs": [
+    {
+     "job": "20261125T073126Z-1",
+     "resolved": 44,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 2923
+    },
+    {
+     "job": "20261125T073429Z-1",
+     "resolved": 45,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 2922
+    },
+    {
+     "job": "20261125T073757Z-1",
+     "resolved": 44,
+     "trials": 51,
+     "timedOut": 0,
+     "credits": 2874
+    }
+   ],
+   "tasks": {
+    "always": 43,
+    "sometimes": [
+     "internetarchive__openlibrary-b67138b",
+     "protonmail__webclients-e65cc5f"
+    ],
+    "never": [
+     "ansible__ansible-40ade1f",
+     "flipt-io__flipt-3d5a345",
+     "flipt-io__flipt-c188284",
+     "flipt-io__flipt-cd18e54",
+     "internetarchive__openlibrary-7cbfb81",
+     "protonmail__webclients-c5a2089"
+    ]
+   },
+   "only": [],
+   "missed": [],
+   "failures": {
+    "Tests failed": 17,
+    "No test result": 3
+   },
+   "tokens": {
+    "median": 834536,
+    "top": [
+     {
+      "task": "tutao__tutanota-f373ac3",
+      "value": 3775932
+     },
+     {
+      "task": "navidrome__navidrome-874b17b",
+      "value": 2447170
+     },
+     {
+      "task": "gravitational__teleport-1316e67",
+      "value": 2109855
+     }
+    ]
+   },
+   "minutes": {
+    "median": 8.5,
+    "top": [
+     {
+      "task": "gravitational__teleport-2b15263",
+      "value": 26.3
+     },
+     {
+      "task": "protonmail__webclients-e65cc5f",
+      "value": 25.2
+     },
+     {
+      "task": "gravitational__teleport-65438e6",
+      "value": 19.8
+     }
+    ]
+   },
+   "models": null
+  },
   "hve-sol": {
    "runs": [
     {
@@ -1347,8 +1428,7 @@
    },
    "only": [],
    "missed": [
-    "internetarchive__openlibrary-0dc5b20",
-    "protonmail__webclients-c5a2089"
+    "internetarchive__openlibrary-0dc5b20"
    ],
    "failures": {
     "Tests failed": 23,
