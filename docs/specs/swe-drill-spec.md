@@ -75,9 +75,8 @@ In the setup phase, SWE-drill:
 1. **finds the workspace, and records the base and the starting tree.** The
    workspace is the directory the sandbox starts in, which is the image's
    `WORKDIR`, such as `/gleam`. It must be the top level of a git repository,
-   or the trial fails naming it. The base is `git rev-parse HEAD`. Recording the
-   starting tree leaves the index, `HEAD`, the refs and `git status` as the
-   image left them.
+   or the trial fails naming it. Recording leaves the index, `HEAD`, the refs
+   and `git status` as the image left them.
 2. **lets the agent install itself**, as its Harbor class does.
 
 In the agent phase, SWE-drill:
@@ -93,16 +92,12 @@ Harbor starts in the same agent job once the agent's sandbox has stopped.
 
 ### Capturing the patch
 
-```bash
-git add -A
-git diff --cached --binary <starting tree> > /logs/agent/model.patch
-cp /logs/agent/model.patch /logs/artifacts/model.patch
-```
-
-The diff runs from the starting tree, so it holds the whole change the agent
-made, whether it committed it or not, and none of the changes the image already
-had. The verifier's sandbox starts from the same image, so the patch applies
-there with `git apply`. A file of the starting tree that the agent made git ignore, but
+The patch is a binary git diff from the starting tree to everything in the
+workspace, written to `/logs/agent/model.patch` and copied to
+`/logs/artifacts/model.patch`. It holds the whole change the agent made,
+whether it committed it or not, and none of the changes the image already had,
+and it applies in the verifier's sandbox, which starts from the same image. A
+file of the starting tree that the agent made git ignore, but
 left in place, stays out of the patch. The copy in `/logs/artifacts/` is the one
 Harbor carries to a verifier in a sandbox of its own, and SWE-drill writes it however
 the run ends.
@@ -111,8 +106,7 @@ the run ends.
 
 Harbor grades each trial in its separate verifier: a fresh sandbox built from
 the task's own `Dockerfile`, which it starts in the same agent job once the
-agent's sandbox has stopped. Each task's copy in the lane sets
-`[verifier] environment_mode = "separate"`. That sandbox holds nothing of the
+agent's sandbox has stopped. That sandbox holds nothing of the
 agent's but `/logs/artifacts/`. SWE-drill's verifier applies the `model.patch` there
 in the workspace, found as the trial found it, puts every test file back as the
 image held it, and runs the task's own `test.sh` there, unchanged. That reward
@@ -121,16 +115,9 @@ is the trial's result. On `rebench` the agent job passes
 `--verifier swe_drill.judge:JudgedVerifier`, which grades the same way and then
 runs the task's rubric judge on the host, as its lane describes.
 
-It applies the patch with:
-
-```bash
-git apply --verbose model.patch
-```
-
-That changes the working tree alone, so `test.sh` finds the change uncommitted,
-with `HEAD` at the base. Git applies all of the patch or none of it. The patch
-runs from the starting tree, which the verifier's sandbox also starts from, so a
-patch SWE-drill captured applies there.
+Applying the patch changes the working tree alone, so `test.sh` finds the
+change uncommitted, with `HEAD` at the base. All of the patch applies or none
+of it does.
 
 A harness cannot change its result by changing the sandbox it worked in, because
 the grading happens in another.
@@ -191,8 +178,7 @@ GRADER_KEY = "${GRADER_KEY}"
 
 SWE-drill runs the agent job's Harbor with each variable the lane's tasks name this
 way in `[verifier.env]` alone that the `.env` beside `swe-drill.toml` sets, with its
-value there, since Harbor gives `[verifier.env]` to the command that runs
-`test.sh` and to no sandbox. It never passes one as an argument. No job's
+value there. It never passes one as an argument. No job's
 Harbor takes these variables from swe_drill's own environment. So a variable `.env`
 leaves out or leaves empty takes the task's default, and the agent phase gets one only when the arm's agent class gives it to its commands.
 `harbor run` loads a `.env.local` in the directory it runs in, so `swe-drill run`
@@ -246,7 +232,7 @@ The agent's own files go there too, such as Copilot CLI's stream,
   when their coding agent exits non-zero. A `CopilotCliSquiz` trial is
   `review-timed-out` when Harbor stops it there after Copilot CLI's first run
   has exited, while squiz's review or a fix is still running, and
-  `review-stopped` when `squiz review` exits 1. Whatever the status, SWE-drill stops the
+  `review-stopped` when squiz's review fails. Whatever the status, SWE-drill stops the
   agent's processes, then captures the patch and writes the record, and the
   verifier grades it.
 - `squiz`, in a `CopilotCliSquiz` trial alone, says which squiz ran, whether
@@ -265,8 +251,7 @@ The agent's own files go there too, such as Copilot CLI's stream,
   }
   ```
 
-  `loaded` is whether `.squiz/local/base.json`, which squiz's `SessionStart`
-  hook writes, exists.
+  `loaded` is whether squiz recorded a base for its review.
 - A trial whose patch cannot be written fails with the capture's error, and is
   not graded, whatever the agent did.
 - `usage` is what the agent reports it spent, or `null` for an agent whose
@@ -562,10 +547,7 @@ It reads the arm from `swe-drill.toml` in the current directory. For each lane, 
 builds `lanes/<lane>/`, a directory of copies of the lane's task directories
 from the directory its key names: `swe_rebench` for `rebench`, and
 `swe_atlas_rf` for `atlas-rf`. Each copy has
-`[agent] network_mode = "no-network"` added to its `task.toml` where its
-`[agent]` sets no `network_mode`, and the separate verifier its lane describes.
-On `atlas-rf` its rubric
-judge calls Copilot's API, as its lane describes. A build removes what an
+the changes its lane describes. A build removes what an
 earlier build of the lane left. Harbor builds each task's image from its
 `Dockerfile` when its trial starts.
 
@@ -597,16 +579,13 @@ settings as the agent does:
 
 `<stamp>` is the time `swe-drill run` started, in UTC, as `20261031T142500Z`. Every
 job of the run shares it, and `-1` to `-K` tell its agent jobs apart. `<env>`
-is the Python environment SWE-drill is installed in, an absolute path SWE-drill forms
-itself. Its `harbor` is the one that can import `swe_drill.agents` and SWE-drill's
-verifiers, which a `harbor` elsewhere on `PATH` may not be.
+is the Python environment SWE-drill is installed in, as an absolute path, and
+never a `harbor` found elsewhere on `PATH`.
 
 When a task in the lane has Harbor fill a variable from Harbor's environment,
-every job of the lane takes `-y`, right after `run`. Harbor asks before such a job whether its tasks may load those
-variables, and without a terminal it reads no answer and exits 1 with
-`Aborted.`. Answering yes is safe because Harbor holds only the values SWE-drill
-gives it: those `.env` sets for the verifier alone. `-y` also agrees, without asking, to share an uploaded
-job with an organization you are not a member of.
+every job of the lane takes `-y`, right after `run`, which lets its tasks load
+those variables without asking. `-y` also agrees, without asking, to share an
+uploaded job with an organization you are not a member of.
 
 A run of `atlas-rf` is refused when `swe-drill.toml` sets no `model`
 in `[lanes.atlas-rf.judge]`, or `.env` sets no `COPILOT_GITHUB_TOKEN`. A token
@@ -749,8 +728,7 @@ model = "gemini-4-argon"
 - `concurrency` is passed to `harbor run` as `-n`: how many trials run at once.
   When `environment` is `docker`, `concurrency` times the largest
   `[environment] cpus` among the lane's tasks, and `concurrency` times their
-  largest `memory_mb`, must fit in the CPUs and memory that
-  `docker info --format '{{.NCPU}} {{.MemTotal}}'` reports. An
+  largest `memory_mb`, must fit in the CPUs and memory that Docker reports. An
   `--override-cpus` or `--override-memory-mb` passed after `--` counts in place
   of the tasks' own where it is larger. Memory is counted in MiB, as
   `memory_mb` is, and Docker's is rounded down. A task that gives `memory`
@@ -828,9 +806,8 @@ A trial's result is the reward its own verifier gave it, in the agent trial's
 when it timed out or crashed, and `harness-failed` and `timed-out` trials count
 as their verifier graded them.
 
-A trial is invalid when its verifier wrote an empty `verifier/reward.txt`,
-which Harbor records in the trial's `result.json` as an `exception_info` whose
-`exception_type` is `RewardFileEmptyError`. An invalid trial counts nowhere, as
+A trial is invalid when its verifier wrote an empty `verifier/reward.txt`. An
+invalid trial counts nowhere, as
 if it had not run, so a task whose every trial in an arm is invalid is not one
 of that arm's tasks.
 
