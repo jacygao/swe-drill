@@ -195,9 +195,8 @@ value there, since Harbor gives `[verifier.env]` to the command that runs
 `test.sh` and to no sandbox. It never passes one as an argument. No job's
 Harbor takes these variables from swe_drill's own environment. So a variable `.env`
 leaves out or leaves empty takes the task's default, and the agent phase gets one only when the arm's agent class gives it to its commands.
-`harbor run` loads a `.env.local` in the directory it runs in, so a run exits
-with an error before it builds any lane or runs any job when one is beside
-`swe-drill.toml`.
+`harbor run` loads a `.env.local` in the directory it runs in, so `swe-drill run`
+refuses a run when one is beside `swe-drill.toml`.
 
 ### The trial record
 
@@ -448,8 +447,7 @@ harbor run -p swe-rebench-07-2026 -e modal -a oracle
 
 A task whose `[verifier]` sets another `environment_mode` or an `environment` of
 its own, whose `test.sh` the lane cannot change as above, or whose `tests`
-directory is a link, makes `swe-drill run` exit with an error naming it before
-it builds any lane or runs any job.
+directory is a link, is refused.
 
 ### `atlas-rf`
 
@@ -513,10 +511,9 @@ file runs under Docker in Docker.
 
 A task whose `[verifier]` sets another `environment_mode` or an `environment` of
 its own, whose `task.toml`, `test.sh` or `evaluate_rubrics.py` the lane cannot
-change as above, or whose `tests` directory is a link, makes `swe-drill run`
-exit with an error naming it before it builds any lane or runs any job. So does
-a task whose entrypoint the lane clears, where its `environment` directory is
-missing or a link, or already holds a `docker-compose.yaml`.
+change as above, or whose `tests` directory is a link, is refused. So is a task
+whose entrypoint the lane clears, where its `environment` directory is missing
+or a link, or already holds a `docker-compose.yaml`.
 
 ### Network
 
@@ -542,10 +539,9 @@ network to the whole trial, with `[environment] network_mode = "public"` or with
 adds `[agent] network_mode = "no-network"` where `[agent]` sets no
 `network_mode`. A `task.toml` whose `[agent]` sets `no-network` or `allowlist`
 is copied unchanged. One whose `[agent]` sets any
-other `network_mode`, or sets `allowed_hosts` with no `network_mode`, makes
-`swe-drill run` exit with an error naming it before it builds any lane or runs any
-job. The verifier keeps the task's own network, which a `rebench` copy uses to
-install Python through apt on an image that has none. An `atlas-rf` task's
+other `network_mode`, or sets `allowed_hosts` with no `network_mode`, is
+refused. The verifier keeps the task's own network, which a `rebench` copy uses
+to install Python through apt on an image that has none. An `atlas-rf` task's
 verifier has a public network, through which its `test.sh` installs `openai`
 from PyPI on an image that lacks it.
 
@@ -557,6 +553,10 @@ from PyPI on an image that lacks it.
 swe-drill run <arm> <lane>... [--check] [-- <harbor args>]
 swe-drill run copilot-gpt rebench
 ```
+
+A run this specification refuses exits with an error naming what it refuses,
+before it builds any lane or runs any job, under `DRY_RUN=1` and `--check` as
+in a normal run.
 
 It reads the arm from `swe-drill.toml` in the current directory. For each lane, it
 builds `lanes/<lane>/`, a directory of copies of the lane's task directories
@@ -608,8 +608,7 @@ variables, and without a terminal it reads no answer and exits 1 with
 gives it: those `.env` sets for the verifier alone. `-y` also agrees, without asking, to share an uploaded
 job with an organization you are not a member of.
 
-A run of `atlas-rf` exits with an error before it builds any lane or runs any
-job, with `DRY_RUN=1` and `--check` too, when `swe-drill.toml` sets no `model`
+A run of `atlas-rf` is refused when `swe-drill.toml` sets no `model`
 in `[lanes.atlas-rf.judge]`, or `.env` sets no `COPILOT_GITHUB_TOKEN`. A token
 set to an empty value counts as missing:
 
@@ -621,8 +620,7 @@ gemini-4-argon
 ```
 
 Options after `--` go to every agent job. Passing any of these, under any name
-or spelling Harbor accepts, is an error that names it and says why, and runs
-nothing:
+or spelling Harbor accepts, is refused, and the error says why:
 
 - An option SWE-drill sets on the agent job, even with SWE-drill's own value: `-p`,
   `-e`, `-n`, `-k`, `-a`, `--ak`, `--allow-agent-host`, `--verifier`,
@@ -716,9 +714,7 @@ model = "gemini-4-argon"
   `swe_atlas_rf` is `<dir>/swe-atlas-rf` after
   `harbor download scale-ai/swe-atlas-rf -o <dir>`. Each is required only by a
   run of its lane, `rebench` or `atlas-rf`. A run of a lane
-  whose key is missing exits with an error naming it before it builds any lane
-  or runs any job. A `senior_swe_bench` key makes `swe-drill run` exit with an
-  error before it builds any lane or runs any job:
+  whose key is missing is refused. A `senior_swe_bench` key is refused:
 
   ```
   $ swe-drill run copilot-gpt rebench
@@ -728,9 +724,9 @@ model = "gemini-4-argon"
 - `agent` names the arm's agent class, as `module:Class`. `model` is passed as
   `-m`, and each of `kwargs` as `--ak`, of its own type. A class that is not
   built on `Adapter`, a kwarg it does not take, or a model or kwarg it needs
-  and the arm leaves out, makes `swe-drill run` exit with an error before it builds
-  any lane or runs any job. Harbor refuses such a kwarg only once the agent job
-  has started, and takes any kwarg for an agent class that declares no options:
+  and the arm leaves out, is refused. Harbor refuses such a kwarg only once the
+  agent job has started, and takes any kwarg for an agent class that declares no
+  options:
 
   ```
   $ swe-drill run copilot-gpt rebench
@@ -739,12 +735,11 @@ model = "gemini-4-argon"
   reasoning_effort, fusion_tier
   ```
 
-  An arm that sets `harness` or `params` makes `swe-drill run` exit with an error
-  saying to use `agent`, `model` and `kwargs`.
+  An arm that sets `harness` or `params` is refused, and the error says to use
+  `agent`, `model` and `kwargs`.
 - `environment` is passed to `harbor run` as `-e`: `docker` runs the sandboxes
   on this machine, and `modal` runs them on Modal. With `modal`, when Modal's
-  client is not installed in SWE-drill's environment, `swe-drill run` exits with an error
-  before it builds a lane or runs any job, with `DRY_RUN=1` and `--check` too:
+  client is not installed in SWE-drill's environment, the run is refused:
 
   ```
   $ swe-drill run copilot-gpt rebench
@@ -760,10 +755,9 @@ model = "gemini-4-argon"
   of the tasks' own where it is larger. Memory is counted in MiB, as
   `memory_mb` is, and Docker's is rounded down. A task that gives `memory`
   counts as Harbor reads it: `"8G"` is 8192 MiB. When
-  either does not fit, `swe-drill run` exits with an error before it builds any lane
-  or runs any job, and does so under `DRY_RUN=1` too. A task that names no
-  `cpus`, or neither `memory_mb` nor a `memory` Harbor reads, is an error that
-  names it. A `--check` counts only its one task, and one trial at a time.
+  either does not fit, the run is refused. So is a task that names no `cpus`, or
+  neither `memory_mb` nor a `memory` Harbor reads. A `--check` counts only its
+  one task, and one trial at a time.
 
   ```
   $ swe-drill run copilot-gpt rebench
@@ -776,29 +770,25 @@ model = "gemini-4-argon"
   `concurrency`.
 - `[lanes.atlas-rf.judge]` gives `model`, the model an `atlas-rf` run's rubric
   judge calls through Copilot's API, by the name that API takes. A model that
-  is not a non-empty string, or any other key, makes `swe-drill run` exit with an error
-  before it builds any lane or runs any job.
+  is not a non-empty string, or any other key, is refused.
 
   A `[lanes.<lane>]` table for a lane SWE-drill does not have, or one that sets
-  anything but `judge` on `atlas-rf`, makes `swe-drill run` exit
-  with an error before it builds any lane or runs any job:
+  anything but `judge` on `atlas-rf`, is refused:
 
   ```
   $ swe-drill run copilot-gpt rebench
   error: /home/me/evals/swe-drill.toml: sets [lanes.rebnech], but SWE-drill has no lane
   named rebnech; its lanes are rebench, atlas-rf
   ```
-- `max_cost_usd`, at the top or on the arm, makes `swe-drill run` exit with an error
-  before it builds any lane or runs any job, with `DRY_RUN=1` and `--check` too:
+- `max_cost_usd`, at the top or on the arm, is refused:
 
   ```
   $ swe-drill run copilot-gpt rebench
   error: /home/me/evals/swe-drill.toml: [arms.copilot-gpt] sets max_cost_usd, but SWE-drill
   does not read it
   ```
-- `baseline`, on any arm, makes `swe-drill run` and `swe-drill leaderboard` exit with an
-  error naming the arm, before `swe-drill run` builds any lane or runs any job, with
-  `DRY_RUN=1` and `--check` too:
+- `baseline`, on any arm, is refused by `swe-drill run` and by
+  `swe-drill leaderboard`, and the error names the arm:
 
   ```
   $ swe-drill run copilot-gpt rebench
