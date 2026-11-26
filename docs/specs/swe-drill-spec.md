@@ -10,6 +10,10 @@ a repository. Each kind of work is a lane: a set of benchmark tasks and the way
 they are graded. SWE-drill runs the same tasks under several arms, grades every
 result the same way, and ranks the arms on each lane.
 
+This document states what SWE-drill does that a user, or a program reading its
+results, can observe: its commands and their output, `swe-drill.toml`, what each
+agent is given and may reach, how a trial is graded, and what it records.
+
 Ranking plain Claude Code against two harnesses that review its change, each
 run three times, prints output like this:
 
