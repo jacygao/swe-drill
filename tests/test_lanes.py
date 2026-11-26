@@ -22,7 +22,7 @@ from swe_drill.lanes import LaneError
 SPEC = Path(__file__).resolve().parent.parent / "docs" / "specs" / "swe-drill-spec.md"
 
 def test_the_lanes_are_the_specs():
-    section = SPEC.read_text().split("\n## 5. Lanes\n", 1)[1].split("\n## ", 1)[0]
+    section = re.split(r"\n## (?:\d+\. )?Lanes\n", SPEC.read_text(), maxsplit=1)[1].split("\n## ", 1)[0]
     named = re.findall(r"^### `([^`]+)`$", section, re.MULTILINE)
 
     assert named == list(lanes.LANES)
@@ -975,13 +975,6 @@ def make_bash_atlas(root: Path) -> Path:
     root.mkdir()
     shutil.copytree(ATLAS_TASKS / ATLAS_TASK, root / BASH_TASK)
     return root
-
-
-def test_the_atlas_rf_tasks_whose_entrypoint_is_cleared_are_the_specs():
-    sentences = re.findall(r'set `ENTRYPOINT \["/bin/bash"\]`: ([^.]*)\.', SPEC.read_text().replace("\n", " "))
-
-    assert len(sentences) == 1, f"expected one sentence naming the tasks whose image runs bash in {SPEC}"
-    assert sorted(re.findall(r"`([^`]+)`", sentences[0])) == sorted(lanes.atlas_rf.BASH_ENTRYPOINT)
 
 
 def test_an_atlas_rf_copy_of_a_task_whose_image_runs_bash_adds_a_compose_file_clearing_its_entrypoint(

@@ -417,7 +417,9 @@ of trials that resolve.
 Each lane is a directory of copies of its tasks, built from the download that
 its key in `swe-drill.toml` names. Each task's image is built from the `Dockerfile`
 in its `environment/`, and the build downloads from the network. Its repository
-is in the image's `WORKDIR`.
+is in the image's `WORKDIR`. Each copy's `task.toml` adds
+`[verifier] environment_mode = "separate"`, and every trial is graded in a
+sandbox of its own.
 
 ### `rebench`
 
@@ -432,25 +434,22 @@ closed, and an `Interface` section naming any interface it adds.
 
 The verifier runs the task's hidden tests. A trial resolves when the tests the
 real change made pass now pass, and the tests that passed before still pass.
+On an image with no `python3`, a copy's `tests/test.sh` installs one through
+apt before it parses the test log. Only where apt fails does it run the task's
+own parser through `uv`, which downloads a Python from GitHub.
 
-Each copy's `task.toml` adds `[verifier] environment_mode = "separate"`. A task
-whose `[verifier]` sets another `environment_mode` or an `environment` of its
-own makes `swe-drill run` exit with an error naming it before it builds any lane or
-runs any job. Harbor's `oracle` agent leaves no patch for the separate verifier
-to apply, so an oracle check of the lane runs on the download, whose verifier
-shares the agent's sandbox:
+Harbor's `oracle` agent leaves no patch for the separate verifier to apply, so
+an oracle check of the lane runs on the download, whose verifier shares the
+agent's sandbox:
 
 ```bash
 harbor run -p swe-rebench-07-2026 -e modal -a oracle
 ```
 
-Each copy's `tests/test.sh` installs `python3` through apt, on an image that has
-none, just before it parses the test log. Otherwise the task's own script runs
-its parser with `uv`, which downloads a Python from GitHub on every grade and
-fails the grade when GitHub does not answer. A `test.sh` with no line that is
-exactly `if command -v python3 >/dev/null 2>&1; then`, or with more than one, or
-in a `tests` directory that is a link, makes `swe-drill run` exit with an error
-naming it before it builds any lane or runs any job.
+A task whose `[verifier]` sets another `environment_mode` or an `environment` of
+its own, whose `test.sh` the lane cannot change as above, or whose `tests`
+directory is a link, makes `swe-drill run` exit with an error naming it before
+it builds any lane or runs any job.
 
 ### `atlas-rf`
 
@@ -470,21 +469,16 @@ that it gives a verdict on. `verifier/reward.json` holds it with its parts:
 
 The tests and the judge run in different places:
 
-1. **The tests, in the verifier's sandbox.** Each copy's `tests/test.sh` is the
-   task's, which captures the change with `git add -A` and
-   `git diff --cached HEAD` into `verifier/agent.patch`, runs the tests, and
-   writes `verifier/tests_reward.txt`. The one line that runs the judge,
-   `python3 /tests/evaluate_rubrics.py || echo "evaluate_rubrics.py exited non-zero"`,
-   is `echo "The rubric judge runs on the host, after this script"` in the copy.
+1. **The tests, in the verifier's sandbox.** The copy's `tests/test.sh` is the
+   task's, less the line that runs the judge. It captures the change into
+   `verifier/agent.patch`, runs the tests, and writes
+   `verifier/tests_reward.txt`.
 2. **The judge, on the host.** The agent job grades with
    `--verifier swe_drill.judge:JudgedVerifier`, which grades as
    `ReplayVerifier` does, then runs the copy's `tests/evaluate_rubrics.py` in a
-   process of its own, with the task's `tests/` directory, a copy of the
-   agent's `model.patch`, and `rubrics_results.json` in place of the paths the
-   script names in the container. The copy and the judge's files are in a
-   directory of the trial's that no sandbox mounts, which is removed once they
-   are moved into `verifier/`. A trial whose agent left no `model.patch` is
-   judged on `verifier/agent.patch`. A patch or `tests_reward.txt` that is a
+   process of its own, on the agent's `model.patch`, or on
+   `verifier/agent.patch` where the agent left none. It runs in a directory of
+   the trial's that no sandbox mounts. A patch or `tests_reward.txt` that is a
    link counts as missing. The process's environment is `PATH` and these, and
    nothing else:
 
@@ -497,9 +491,8 @@ The tests and the judge run in different places:
    `JudgedVerifier` then writes `reward.json` and `reward.txt` from
    `tests_reward.txt` and `rubrics_results.json`, as the task's `test.sh` does,
    and returns that reward to Harbor. A file that is missing or unreadable, or
-   a value that is not a finite number, counts as a failure. Each of its four
-   files is moved into `verifier/` by renaming it over whatever is there, and
-   a name the judge wrote nothing for is removed there. The judge's output is
+   a value that is not a finite number, counts as a failure. `verifier/` then
+   holds this grade's files and none from an earlier one. The judge's output is
    in `verifier/judge.log`, and Harbor's verifier timeout covers it.
 
 The judge's verdicts are in `verifier/rubrics_results.json`. An item the judge
@@ -507,56 +500,23 @@ gave no verdict on, as when every call to its model failed, is
 `"evaluable": false` there and counts neither way, so a judge that reaches no
 model leaves `must_have_pass` false and the reward 0.
 
-Each copy's `task.toml` adds `[verifier] environment_mode = "separate"`, and
-leaves out three lines of its `[verifier.env]`, so the verifier's sandbox takes
-nothing from Harbor's environment:
+Each copy's `[verifier.env]` leaves out the task's judge key, endpoint and
+model, so the verifier's sandbox takes nothing from Harbor's environment. Its
+`tests/evaluate_rubrics.py` sends the `Copilot-Integration-Id` header that
+Copilot's API requires, and is otherwise the task's.
 
-```toml
-EVAL_API_KEY = "${OPENAI_API_KEY}"
-EVAL_BASE_URL = "${OPENAI_API_BASE}"
-EVAL_MODEL = "${EVAL_MODEL:-anthropic/claude-opus-4-5-20251101}"
-```
+Harbor's Docker environment starts a task's image with its own command and
+keeps the image's entrypoint. Where the entrypoint is `/bin/bash`, which would
+read that command as a script and exit before the agent starts, the copy adds an
+`environment/docker-compose.yaml` that clears it. On Modal, a task with that
+file runs under Docker in Docker.
 
-Copilot's API refuses every call without a `Copilot-Integration-Id` header, so
-each copy's `tests/evaluate_rubrics.py` makes its one client send one, and is
-otherwise the task's:
-
-```python
-client = OpenAI(api_key=api_key, base_url=base_url, default_headers={"Copilot-Integration-Id": "copilot-developer-cli"})
-```
-
-Harbor's Docker environment starts a task's image with its own command,
-`sh -c "sleep infinity"`, and keeps the image's entrypoint. Fifteen tasks'
-images set `ENTRYPOINT ["/bin/bash"]`: `task-69b7c2a04b6f8ff9ed98812c`,
-`task-69b7c2a04b6f8ff9ed98812d`, `task-69b7c2a04b6f8ff9ed98812e`,
-`task-69b7c2a04b6f8ff9ed98812f`, `task-69b7c2a04b6f8ff9ed988131`,
-`task-69b7c2a04b6f8ff9ed988134`, `task-69b7c2a04b6f8ff9ed988137`,
-`task-69b7c2a04b6f8ff9ed98813a`, `task-69b7c2a04b6f8ff9ed98813b`,
-`task-69b7c2a04b6f8ff9ed98813d`, `task-69d196f015a150488265afc0`,
-`task-69d196f015a150488265afc1`, `task-69d196f015a150488265afc2`,
-`task-69d196f015a150488265afc3` and `task-69d196f015a150488265afc4`. bash reads
-`sh` as a script, and the container exits 126 before the agent starts. Each of
-those tasks' copies adds an `environment/docker-compose.yaml`, which Harbor
-merges over its own, so the container runs Harbor's command alone:
-
-```yaml
-services:
-  main:
-    entrypoint: []
-```
-
-On Modal, a task with that file runs under Docker in Docker.
-
-A task whose `[verifier]` sets another `environment_mode` or an `environment`
-of its own, whose `task.toml` has no line that is exactly one of the three
-above or has more than one, whose three lines are not all in
-`[verifier.env]`, whose `test.sh` has not exactly one line that runs the judge,
-whose `evaluate_rubrics.py` calls
-`OpenAI(api_key=api_key, base_url=base_url)` other than once, or whose `tests`
-directory is a link, makes `swe-drill run` exit with an error naming it before
-it builds any lane or runs any job. So does one of the fifteen whose
-`environment` directory is missing or a link, or already holds a
-`docker-compose.yaml`.
+A task whose `[verifier]` sets another `environment_mode` or an `environment` of
+its own, whose `task.toml`, `test.sh` or `evaluate_rubrics.py` the lane cannot
+change as above, or whose `tests` directory is a link, makes `swe-drill run`
+exit with an error naming it before it builds any lane or runs any job. So does
+a task whose entrypoint the lane clears, where its `environment` directory is
+missing or a link, or already holds a `docker-compose.yaml`.
 
 ### Network
 
