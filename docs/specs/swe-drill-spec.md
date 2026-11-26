@@ -434,8 +434,9 @@ closed, and an `Interface` section naming any interface it adds.
 
 The verifier runs the task's hidden tests. A trial resolves when the tests the
 real change made pass now pass, and the tests that passed before still pass.
-A copy's grade downloads no Python from GitHub: on an image with no `python3`,
-its `tests/test.sh` installs one through apt before it parses the test log.
+On an image with no `python3`, a copy's `tests/test.sh` installs one through
+apt before it parses the test log. Only where apt fails does it run the task's
+own parser through `uv`, which downloads a Python from GitHub.
 
 Harbor's `oracle` agent leaves no patch for the separate verifier to apply, so
 an oracle check of the lane runs on the download, whose verifier shares the
