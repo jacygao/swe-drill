@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-24",
+  "updated": "2026-11-26",
   "rebench": {
     "title": "rebench",
     "about": "SWE-rebench’s July 2026 snapshot: 108 GitHub issues from open-source repositories, each graded by its own hidden tests. Every arm runs the same tasks, graded the same way.",
@@ -428,11 +428,55 @@
         ],
         "note": "The three runs ran at once, one Azure region each, and no trial needed running again. A first attempt was stopped after a few minutes and kept no record. 43 tasks were resolved in all three runs, and 45 in at least one. Three trials, all of tutanota-f373ac3, record no test result: each patch applied, but none of the tests the task needs reported, so they count as unresolved.",
         "takeaways": [
-          "It resolved 87%, second only to Opus’s 92%, at $80.45 a run, the most of any arm and twice Opus’s cost.",
+          "It resolved 87%, tied with squiz behind Opus’s 92%, at $80.45 a run, the most of any arm and twice Opus’s cost.",
           "It resolved 7 points more than Fusion high, at 3.6× the cost and in 59% of the agent time.",
           "Fusion gave 60 of its 153 trials to gpt-6.2-astra alone, which resolved 82% of them. The 82 trials that used claude-opus-5.5 resolved 90%.",
-          "Only 2 tasks changed outcome between its runs, the fewest on this lane.",
+          "Only 2 tasks changed outcome between its runs, tied with squiz for the fewest on this lane.",
           "Its three untested trials are all tutao__tutanota-f373ac3: each patch applied, but none of the task’s tests reported."
+        ]
+      },
+      {
+        "name": "squiz-gpt-6.1-sol",
+        "agent": "Copilot CLI 1.0.107",
+        "harness": "Peer review (squiz)",
+        "harnessDetail": "Peer review by squiz 0.4.1, claude-sonnet-5.5 reviewer at effort high",
+        "model": "gpt-6.1-sol, effort high",
+        "rate": 0.8693,
+        "margin": 0.0915,
+        "pass": 0.8824,
+        "timedOut": 0,
+        "cost": 29.06,
+        "hours": 7.97,
+        "tokens": 835000,
+        "where": "Docker · Azure",
+        "params": "version 1.0.107, effort high, squiz_version 0.4.1, reviewer_model claude-sonnet-5.5, reviewer_effort high",
+        "runs": [
+          {
+            "job": "20261125T073126Z-1",
+            "date": "2026-11-25",
+            "where": "Docker on Azure, Australia East",
+            "median": 8.4
+          },
+          {
+            "job": "20261125T073429Z-1",
+            "date": "2026-11-25",
+            "where": "Docker on Azure, New Zealand North",
+            "median": 8.7
+          },
+          {
+            "job": "20261125T073757Z-1",
+            "date": "2026-11-25",
+            "where": "Docker on Azure, Korea Central",
+            "median": 8.5
+          }
+        ],
+        "note": "squiz reviews each change with claude-sonnet-5.5 and its fixer answers the findings; the cost counts both, $10.26 of the $29.06 a run. The three runs ran at once, one Azure region each. In each, squiz could not install on the 10 tasks whose images are Alpine; once that was fixed, those 10 ran again inside the same job later that day. 43 tasks were resolved in all three runs, and 45 in at least one. Three trials, all of webclients-c5a2089, record no test result: each patch applied, but none of the tests the task needs reported, so they count as unresolved.",
+        "takeaways": [
+          "squiz’s peer review lifted GPT-6.1 Sol from 85% to 87%, a gap inside the noise, for $10.04 more a run.",
+          "It tied Fusion max at 87% for 36% of its cost.",
+          "Of its $29.06 a run, the coding agent took $18.80, the reviewer $7.95 and the fixer $2.31. The fixer ran on 15, 12 and 11 trials of the three runs.",
+          "Only 2 tasks changed outcome between its runs, tied with Fusion max for the fewest on this lane.",
+          "Its three untested trials are all protonmail__webclients-c5a2089: each patch applied, but none of the task’s tests reported."
         ]
       },
       {
@@ -473,7 +517,7 @@
         "takeaways": [
           "On the same model, hve-core’s RPI Agent resolved 86% to plain Copilot CLI’s 85%, a gap well inside the noise.",
           "It cost $61.38 a run, 3.2× plain GPT-6.1 Sol, and used a median of 5.3M tokens a trial, about 6× as many and the most of any arm.",
-          "Only 3 tasks changed outcome between its runs, as for Opus, one more than Fusion max.",
+          "Only 3 tasks changed outcome between its runs, as for Opus, one more than Fusion max and squiz.",
           "Its three untested trials are all navidrome__navidrome-69e0a26: each patch applied, but the task’s test never reported."
         ]
       },
