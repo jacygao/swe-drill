@@ -93,7 +93,7 @@ resolved rate, as `swe-drill leaderboard --lane rebench` does.
 - **Runs:** how many times the arm ran every task, one trial per task each
   time. Trial counts and rates pool all runs; cost and agent time are per run.
 - **Resolved rate:** resolved trials over valid trials. The ± is half its 95%
-  interval.
+  interval. Arms with the same rate share a rank, the cheaper listed first.
 - **pass@k:** the share of tasks that at least one of the arm's k runs
   resolved.
 - **Timed out:** trials stopped at the agent's time limit, counted as
