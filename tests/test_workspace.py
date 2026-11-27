@@ -9,6 +9,7 @@ from swe_drill.workspace import (
     WorkspaceError,
     capture_patch,
     find_workspace,
+    make_workspace,
     read_base,
     read_start_tree,
 )
@@ -433,6 +434,55 @@ def test_a_start_directory_with_no_repository_fails_naming_it(env, tmp_path):
         run(find_workspace(env))
     assert str(plain) in str(raised.value), "the error does not name the directory"
     assert "not a git repository" in str(raised.value), "the error drops what git said"
+
+
+def test_an_empty_start_directory_becomes_a_repository_at_an_empty_commit(env, tmp_path):
+    empty = tmp_path / "app"
+    empty.mkdir()
+    start_in(env, empty)
+
+    assert run(make_workspace(env)) == str(empty)
+
+    assert git(empty, "ls-tree", "-r", "HEAD") == "", "the first commit holds files"
+    assert git(empty, "status", "--porcelain") == ""
+
+
+def test_an_agents_files_in_a_workspace_that_started_empty_are_its_whole_patch(env, tmp_path, logs):
+    empty = tmp_path / "app"
+    empty.mkdir()
+    start_in(env, empty)
+    workspace = run(make_workspace(env))
+    start = run(read_start_tree(env, workspace))
+    (empty / "main.py").write_text("print('hi')\n")
+
+    run(capture_patch(env, workspace, start, str(logs)))
+
+    fresh = init(tmp_path / "fresh")
+    git(fresh, "apply", str(logs / "model.patch"))
+    assert tree(fresh) == tree(empty)
+
+
+def test_a_start_directory_with_files_and_no_repository_is_refused_naming_it(env, tmp_path):
+    plain = tmp_path / "plain dir"
+    plain.mkdir()
+    (plain / "main.py").write_text("print('hi')\n")
+    start_in(env, plain)
+    with pytest.raises(WorkspaceError) as raised:
+        run(make_workspace(env))
+    assert str(plain) in str(raised.value), "the error does not name the directory"
+    assert not (plain / ".git").exists(), "a repository was made where the image left files"
+
+
+def test_a_repository_is_taken_as_it_is(env, tmp_path):
+    repo = init(tmp_path / "gleam")
+    (repo / "left.txt").write_text("uncommitted\n")
+    head = git(repo, "rev-parse", "HEAD")
+    start_in(env, repo)
+
+    assert run(make_workspace(env)) == str(repo)
+
+    assert git(repo, "rev-parse", "HEAD") == head
+    assert git(repo, "status", "--porcelain") == "?? left.txt\n"
 
 
 def test_a_start_directory_inside_a_repository_fails_naming_it(env, tmp_path):

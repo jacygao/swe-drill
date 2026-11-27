@@ -403,12 +403,31 @@ def test_a_trial_that_starts_outside_a_repository_fails_naming_the_directory(
 ):
     elsewhere = tmp_path / "the sandbox" / "elsewhere"
     elsewhere.mkdir()
+    (elsewhere / "main.py").write_text("print('hi')\n")
     local_environment.task_env_config.workdir = str(elsewhere)
 
     with pytest.raises(WorkspaceError) as raised:
         go(trial.agent().setup(environment=local_environment))
 
     assert str(elsewhere) in str(raised.value), "the error does not name the directory"
+
+
+def test_a_trial_that_starts_in_an_empty_directory_leaves_its_files_as_the_patch(
+    local_environment, trial, tmp_path
+):
+    empty = tmp_path / "the sandbox" / "app"
+    empty.mkdir()
+    local_environment.task_env_config.workdir = str(empty)
+
+    record = trial.run(local_environment, script="printf 'print(1)\\n' > main.py")
+
+    assert record["status"] == "ok"
+    assert record["base"] == git(empty, "rev-list", "--max-parents=0", "HEAD").strip()
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=fresh, check=True)
+    subprocess.run(["git", "apply", str(trial.logs / "model.patch")], cwd=fresh, check=True)
+    assert (fresh / "main.py").read_text() == "print(1)\n"
 
 
 @pytest.mark.parametrize(
