@@ -462,6 +462,25 @@ def test_an_agents_files_in_a_workspace_that_started_empty_are_its_whole_patch(e
     assert tree(fresh) == tree(empty)
 
 
+def test_the_empty_workspaces_first_commit_runs_no_hook_of_the_image(env, tmp_path, monkeypatch):
+    template = tmp_path / "template"
+    (template / "hooks").mkdir(parents=True)
+    for hook in ("prepare-commit-msg", "post-commit"):
+        script = template / "hooks" / hook
+        script.write_text(f"#!/bin/sh\ntouch {tmp_path}/{hook}-ran\nexit 1\n")
+        script.chmod(0o755)
+    # git init copies hooks from here, as an image's init template would.
+    monkeypatch.setenv("GIT_TEMPLATE_DIR", str(template))
+    empty = tmp_path / "app"
+    empty.mkdir()
+    start_in(env, empty)
+
+    run(make_workspace(env))
+
+    assert not list(tmp_path.glob("*-ran")), "a hook ran"
+    assert git(empty, "ls-tree", "-r", "HEAD") == ""
+
+
 def test_a_start_directory_with_files_and_no_repository_is_refused_naming_it(env, tmp_path):
     plain = tmp_path / "plain dir"
     plain.mkdir()

@@ -65,12 +65,14 @@ async def make_workspace(env: BaseEnvironment) -> str:
         f' && [ -z "$(ls -A {quoted})" ]'
     )
     if empty.return_code == 0:
-        # A commit from SWE-drill's own identity, which no config of the image signs or hooks.
+        # A commit from SWE-drill's own identity, which no config, hook or init
+        # template of the image signs, rejects or changes.
         await _run(
             env,
             f"git -C {quoted} init -q 2>&1"
             f" && git -C {quoted} -c user.name=SWE-drill -c user.email=swe-drill@localhost"
-            " -c commit.gpgsign=false commit -q --no-verify --allow-empty -m 'Empty workspace' 2>&1",
+            " -c commit.gpgsign=false -c core.hooksPath=/dev/null"
+            " commit -q --allow-empty -m 'Empty workspace' 2>&1",
         )
     return await find_workspace(env)
 
