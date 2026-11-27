@@ -30,7 +30,7 @@ from swe_drill.workspace import (
     LOGS_DIR,
     PATCH_NAME,
     capture_patch,
-    find_workspace,
+    make_workspace,
     read_base,
     read_start_tree,
 )
@@ -138,7 +138,7 @@ class Adapter:
 
     async def setup(self, environment: BaseEnvironment) -> None:
         """Record the workspace, the base and the starting tree, then let the agent install."""
-        workspace = await find_workspace(environment)
+        workspace = await make_workspace(environment)
         base = await read_base(environment, workspace)
         start_tree = await read_start_tree(environment, workspace)
         self._prepared = (workspace, base, start_tree)

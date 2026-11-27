@@ -46,6 +46,37 @@ async def find_workspace(env: BaseEnvironment) -> str:
     return start
 
 
+async def make_workspace(env: BaseEnvironment) -> str:
+    """
+    Return the workspace as `find_workspace` does. An empty start directory is
+    first made a repository at an empty commit.
+
+    A task whose agent writes its code from nothing starts in an empty
+    directory. One that holds files and no repository is refused as
+    `find_workspace` refuses it, since the image has then lost the repository
+    its files belong to. The repository is made by the sandbox's default user,
+    who runs the agent's commands too.
+    """
+    start = (await _run(env, "pwd")).removesuffix("\n")
+    quoted = shlex.quote(start)
+    # Exits 0 only when git finds no repository and the directory holds nothing.
+    empty = await env.exec(
+        f"! git -C {quoted} rev-parse --git-dir >/dev/null 2>&1"
+        f' && [ -z "$(ls -A {quoted})" ]'
+    )
+    if empty.return_code == 0:
+        # A commit from SWE-drill's own identity, which no config, hook or init
+        # template of the image signs, rejects or changes.
+        await _run(
+            env,
+            f"git -C {quoted} init -q 2>&1"
+            f" && git -C {quoted} -c user.name=SWE-drill -c user.email=swe-drill@localhost"
+            " -c commit.gpgsign=false -c core.hooksPath=/dev/null"
+            " commit -q --allow-empty -m 'Empty workspace' 2>&1",
+        )
+    return await find_workspace(env)
+
+
 async def read_base(env: BaseEnvironment, workspace: str) -> str:
     """
     Return the commit the workspace's HEAD names.

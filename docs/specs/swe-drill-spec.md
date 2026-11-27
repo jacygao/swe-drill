@@ -75,8 +75,9 @@ In the setup phase, SWE-drill:
 1. **finds the workspace, and records the base and the starting tree.** The
    workspace is the directory the sandbox starts in, which is the image's
    `WORKDIR`, such as `/gleam`. It must be the top level of a git repository,
-   or the trial fails naming it. Recording leaves the index, `HEAD`, the refs
-   and `git status` as the image left them.
+   or the trial fails naming it. An empty workspace becomes a repository at an
+   empty first commit, which is the base. Recording leaves the index, `HEAD`,
+   the refs and `git status` as the image left them.
 2. **lets the agent install itself**, as its Harbor class does.
 
 In the agent phase, SWE-drill:
