@@ -824,6 +824,9 @@ def test_squiz_reviews_every_step_of_a_task_in_an_episode_of_its_own(box, local_
     publish_squiz(box, monkeypatch)
     squiz_host(box, CLOSING_HOST)
     reviews(box, (2, THREADS), (0, "Reviewed clean.\n"), (0, "Reviewed clean.\n"))
+    # Each review returns once the round host has closed the episode, as a
+    # sandbox with no /proc to stop the host by would otherwise race it.
+    (bin_dir(box) / "review.sleep").write_text("2")
     the_agent = squiz_agent(box)
     run(box, local_environment, the_agent)
 

@@ -558,8 +558,9 @@ step's, then measures the code with the `scb-check` the image installs.
 `verbosity_increased`, `erosion_increased` and `step_has_prior` are 0 in every
 step, since each step's verifier starts with no earlier step's scores.
 
-A task with a step that sets a verifier mode or environment of its own, or
-whose image installs `scb-check` other than once, at 0.1.3, is refused.
+A task revision 4 does not have, or whose checkpoints are not that revision's,
+is refused. So is one with a step that sets a verifier mode or environment of
+its own, or whose image installs `scb-check` other than once, at 0.1.3.
 
 ### Network
 
@@ -859,7 +860,7 @@ swe-drill leaderboard --lane rebench
 ```
 
 It ranks every arm under `results/<lane>/` in the current directory, the one
-holding `swe-drill.toml`, for `rebench` or `atlas-rf`. Each directory there is an arm, whether or not `swe-drill.toml`
+holding `swe-drill.toml`, for any lane. Each directory there is an arm, whether or not `swe-drill.toml`
 defines it, and trials under `checks/` never count. It prints one table, best
 resolved rate first, and arms with the same rate by name:
 
@@ -912,6 +913,38 @@ These trials' judges gave no verdict on some rubric item, so their grading may h
 These trials' verifiers judged them invalid, so the leaderboard counts none of them:
   copilot-gpt  20261108T011500Z-1  gleam-lang__gleam-4890
 ```
+
+On `slopcodebench` it prints a table of its own, by strict pass rate, best
+first, then by arm name:
+
+```
+arm          runs  strict pass rate  core pass rate  erosion  verbosity  erosion rose
+squiz-gpt       3            94% ±2             99%     0.46       0.16           41%
+copilot-gpt     3            92% ±3             98%     0.49       0.16           52%
+```
+
+- A trial's pass rates are the mean over every checkpoint its problem
+  declares, a checkpoint never graded counting 0. Its `erosion` and `verbosity`
+  are the mean over the checkpoints scb-check measured, which a checkpoint's
+  `verifier/reward_details.json` shows by `scb_check_rc` 0.
+- Each problem weighs the same: an arm's runs of it are averaged, then its
+  problems. The ± is the bootstrap's, as for `resolved rate`, drawing problems.
+- `erosion rose` is the share of steps from one measured checkpoint to the
+  next where erosion went up.
+
+After the table, it names each trial with a checkpoint never graded, with how
+many of its checkpoints were, then each checkpoint scb-check measured nothing
+of, by arm in the table's order, then by job and task:
+
+```
+These trials have checkpoints that were never graded, each counting 0:
+  copilot-gpt  20261201T010000Z-2  dynamic_buffer  graded 2 of 4
+
+scb-check measured nothing of these checkpoints, so erosion and verbosity leave them out:
+  squiz-gpt  20261201T010000Z-1  dag_execution  checkpoint_2
+```
+
+A trial of a problem revision 4 does not have is an error naming it.
 
 `--lane` is required, and must name one of SWE-drill's lanes:
 

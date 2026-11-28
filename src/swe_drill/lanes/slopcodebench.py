@@ -21,6 +21,45 @@ UNGRADEABLE: tuple[str, ...] = ()
 # The Harbor Hub revision the lane is built from, and what each trial's grader records.
 REVISION = 4
 DIGEST = "sha256:aec29354c19d3e762640ab6d7d3c63ba8fcf4895e98a5756aecb9157b5bb4ae0"
+# Each problem of revision 4, by its task's name, and how many checkpoints it declares.
+CHECKPOINTS = {
+    "cfgpipe": 6,
+    "circuit_eval": 8,
+    "code_search": 5,
+    "dag_execution": 3,
+    "database_migration": 5,
+    "datagate": 7,
+    "dynamic_buffer": 4,
+    "dynamic_config_service_api": 4,
+    "env_manager": 5,
+    "etl_pipeline": 5,
+    "eve_industry": 6,
+    "eve_jump_planner": 3,
+    "eve_market_tools": 4,
+    "eve_route_planner": 3,
+    "execution_server": 6,
+    "file_backup": 4,
+    "file_merger": 4,
+    "file_query_tool": 5,
+    "forge": 8,
+    "l2m": 5,
+    "layered_config_synthesizer": 4,
+    "log_query": 5,
+    "meshctl": 8,
+    "metric_transform_lang": 5,
+    "migrate_configs": 5,
+    "mocked_http": 8,
+    "mvvault": 6,
+    "pwd_manager": 5,
+    "recli": 8,
+    "rejector": 5,
+    "sheeteval": 7,
+    "sith": 6,
+    "test_translator": 8,
+    "textdrop": 6,
+    "trajectory_api": 5,
+    "xjq": 5,
+}
 # The scorer each task's image installs, which measures verbosity and erosion.
 SCB_CHECK = "0.1.3"
 
@@ -56,7 +95,8 @@ def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
     The files the task's copy writes, by path from the task: its task.toml with
     the agent's network an allowlist of PYPI_HOSTS.
 
-    Raises LaneError naming the task when the task sets its agent's network
+    Raises LaneError naming the task when revision 4 has no such task, or its
+    checkpoints are not that revision's, when the task sets its agent's network
     itself, when a step sets a verifier mode or environment of its own, or when
     its image installs scb-check other than once, at SCB_CHECK exactly.
     """
@@ -67,7 +107,17 @@ def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
         raise LaneError(
             f"{task / 'task.toml'}: sets the agent's network, which the slopcodebench lane sets itself"
         )
-    for step in original.get("steps", []):
+    declared = CHECKPOINTS.get(task.name)
+    steps = original.get("steps", [])
+    names = [step.get("name") if isinstance(step, dict) else None for step in steps]
+    if declared is None or names != [f"checkpoint_{n}" for n in range(1, declared + 1)]:
+        raise LaneError(
+            f"{task / 'task.toml'}: revision 4 has no task {task.name}"
+            if declared is None
+            else f"{task / 'task.toml'}: is not revision 4's {task.name}, which declares checkpoint_1"
+            f" to checkpoint_{declared}"
+        )
+    for step in steps:
         verifier = step.get("verifier", {}) if isinstance(step, dict) else {}
         if "environment_mode" in verifier or "environment" in verifier:
             raise LaneError(

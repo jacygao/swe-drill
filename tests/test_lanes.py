@@ -1050,8 +1050,8 @@ def test_harbors_docker_compose_keeps_a_bash_image_running_only_with_the_copys_c
         subprocess.run([*project, "down", "-t", "0"], env=env, capture_output=True)
 
 
-# A SlopCodeBench task as revision 4 lays one out, cut to two steps.
-SCB_TOML = """schema_version = "1.1"
+# A SlopCodeBench task as revision 4 lays one out, with as many steps as the task has there.
+SCB_HEAD = """schema_version = "1.1"
 
 [task]
 name = "gabeorlanski/{name}"
@@ -1067,21 +1067,16 @@ timeout_sec = 7200.0
 
 [verifier]
 timeout_sec = 3600.0
-
+"""
+SCB_STEP = """
 [[steps]]
-name = "checkpoint_1"
-min_reward = { core_pass_rate = 0.0, strict_pass_rate = 0.0 }
-
-[steps.verifier]
-timeout_sec = 3600.0
-
-[[steps]]
-name = "checkpoint_2"
+name = "checkpoint_{n}"
 min_reward = { core_pass_rate = 0.0, strict_pass_rate = 0.0 }
 
 [steps.verifier]
 timeout_sec = 3600.0
 """
+SCB_TOML = SCB_HEAD + "{steps}"
 SCB_DOCKERFILE = (
     "FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim\n"
     'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"\n'
@@ -1089,13 +1084,17 @@ SCB_DOCKERFILE = (
 )
 
 
-def make_slopcodebench(root: Path, names: list[str], toml: str = SCB_TOML, dockerfile: str = SCB_DOCKERFILE) -> Path:
+def make_slopcodebench(
+    root: Path, names: list[str], toml: str = SCB_TOML, dockerfile: str = SCB_DOCKERFILE, steps: int | None = None
+) -> Path:
     for name in names:
+        count = steps if steps is not None else lanes.slopcodebench.CHECKPOINTS[name]
         task = root / name
         (task / "environment").mkdir(parents=True)
-        (task / "task.toml").write_text(toml.replace("{name}", name))
+        written = toml.replace("{steps}", "".join(SCB_STEP.replace("{n}", str(n)) for n in range(1, count + 1)))
+        (task / "task.toml").write_text(written.replace("{name}", name))
         (task / "environment" / "Dockerfile").write_text(dockerfile)
-        for step in ("checkpoint_1", "checkpoint_2"):
+        for step in (f"checkpoint_{n}" for n in range(1, count + 1)):
             (task / "steps" / step / "tests").mkdir(parents=True)
             (task / "steps" / step / "instruction.md").write_text(f"Build {name}, {step}.\n")
             (task / "steps" / step / "tests" / "test.sh").write_text("#!/bin/bash\nexit 0\n")
@@ -1157,17 +1156,34 @@ def test_a_slopcodebench_image_that_installs_scb_check_across_continued_lines_is
     ['environment_mode = "shared"', 'environment_mode = "separate"'],
 )
 def test_a_slopcodebench_step_that_sets_its_own_verifier_mode_is_refused_naming_it(tmp_path: Path, step_line):
-    toml = SCB_TOML.replace(
-        '[steps.verifier]\ntimeout_sec = 3600.0\n\n[[steps]]',
-        f'[steps.verifier]\ntimeout_sec = 3600.0\n{step_line}\n\n[[steps]]',
-        1,
-    )
+    toml = SCB_HEAD + SCB_STEP.replace("{n}", "1").replace(
+        "[steps.verifier]\ntimeout_sec = 3600.0\n", f"[steps.verifier]\ntimeout_sec = 3600.0\n{step_line}\n"
+    ) + "".join(SCB_STEP.replace("{n}", str(n)) for n in range(2, 7))
     source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], toml=toml)
 
     with pytest.raises(LaneError) as raised:
         lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
 
     assert "cfgpipe" in str(raised.value) and "checkpoint_1" in str(raised.value)
+
+
+@pytest.mark.parametrize("steps", [5, 7])
+def test_a_slopcodebench_task_whose_checkpoints_are_not_revision_4s_is_refused_naming_it(tmp_path: Path, steps):
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], steps=steps)
+
+    with pytest.raises(LaneError) as raised:
+        lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    assert "cfgpipe" in str(raised.value) and "revision 4" in str(raised.value)
+
+
+def test_a_slopcodebench_task_revision_4_does_not_have_is_refused_naming_it(tmp_path: Path):
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["newcomer"], steps=3)
+
+    with pytest.raises(LaneError) as raised:
+        lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    assert "newcomer" in str(raised.value) and "revision 4" in str(raised.value)
 
 
 def test_a_slopcodebench_task_that_sets_its_agents_network_is_refused_naming_it(tmp_path: Path):
