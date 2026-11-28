@@ -288,7 +288,9 @@ parses its output into `trajectory.json`, and records its tokens in
   process group it moved to.
 - At the end of every run, the workspace paths that hold the agent's own
   state are removed before the patch is captured, so no patch, graded snapshot
-  or later step of the task holds them.
+  or later step of the task holds them. A run that finds one of them already
+  there is `harness-failed`, with the agent never started, and leaves it as it
+  was.
 - The patch is captured and `suss.json` written however the run ends.
 - It takes `arm`, `lane` and `drill_config` as `--ak`, and reads the arm's
   settings and the `.env` from that `swe-drill.toml` when Harbor constructs it,

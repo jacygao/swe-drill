@@ -451,6 +451,19 @@ def test_an_agents_own_paths_are_gone_from_the_workspace_and_its_patch(local_env
     assert ".tool" not in patch and "tool.json" not in patch, "the agent's own state is in its patch"
 
 
+def test_a_task_file_at_an_agents_own_path_fails_the_trial_and_is_left_as_it_was(local_environment, trial):
+    (trial.workspace / "tool.json").write_text("the task's\n")
+    agent = trial.agent(Owning)
+
+    with pytest.raises(Exception):
+        trial.run(local_environment, agent=agent, script="echo ran > ../ran")
+
+    assert trial.record()["status"] == "harness-failed"
+    assert not (trial.workspace.parent / "ran").exists(), "the agent started"
+    assert (trial.workspace / "tool.json").read_text() == "the task's\n"
+    assert "tool.json" not in trial.patch()
+
+
 def test_a_later_step_starts_with_none_of_the_agents_own_paths(local_environment, trial):
     agent = trial.agent(Owning)
     go(agent.setup(environment=local_environment))
