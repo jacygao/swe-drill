@@ -63,13 +63,18 @@ class Adapter:
 
     A class takes the arm kwargs in KWARGS, and needs those in REQUIRED_KWARGS
     and, where REQUIRES_MODEL is set, a model. ALLOWED_HOSTS are the hosts its
-    agent phase reaches.
+    agent phase reaches. OWNED_PATHS are the workspace paths that hold the
+    agent's own state rather than its work. At the end of every run they are
+    removed from the workspace before the patch is captured, so no patch and
+    no later step of the task holds them. An agent keeps what it needs of them
+    in its logs during _after_agent.
     """
 
     ALLOWED_HOSTS: ClassVar[tuple[str, ...]] = ()
     KWARGS: ClassVar[tuple[str, ...]] = ()
     REQUIRED_KWARGS: ClassVar[tuple[str, ...]] = ()
     REQUIRES_MODEL: ClassVar[bool] = False
+    OWNED_PATHS: ClassVar[tuple[str, ...]] = ()
     # The status of a trial Harbor stopped at its agent timeout once the agent had exited, during _after_agent.
     AFTER_AGENT_TIMED_OUT: ClassVar[str] = "timed-out"
 
@@ -254,14 +259,15 @@ class Adapter:
         raised: BaseException | None,
     ) -> None:
         """
-        Stop everything the agent started, capture the patch and write
-        suss.json, then raise what the run raised.
+        Stop everything the agent started, remove OWNED_PATHS, capture the
+        patch and write suss.json, then raise what the run raised.
         """
         await sandbox.stop_marked(environment, token)
         try:
             # Harbor waits on a cancelled agent with no limit.
             cleanup = CLEANUP_SECONDS if isinstance(raised, asyncio.CancelledError) else None
             async with asyncio.timeout(cleanup):
+                await self._remove_owned(environment)
                 await self._record(environment, status, run_seconds)
         except BaseException as error:
             # The capture's error is the trial's, since with no patch the
@@ -271,6 +277,12 @@ class Adapter:
             raise
         if raised is not None:
             raise raised
+
+    async def _remove_owned(self, environment: BaseEnvironment) -> None:
+        if not self.OWNED_PATHS:
+            return
+        paths = " ".join(shlex.quote(path) for path in self.OWNED_PATHS)
+        await sandbox.run(environment, f"cd {shlex.quote(self._prepared[0])} && rm -rf -- {paths}")
 
     async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:
         """Capture the patch, copy it to the artifacts directory, then write suss.json beside it."""

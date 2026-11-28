@@ -286,6 +286,9 @@ parses its output into `trajectory.json`, and records its tokens in
 - When the run ends, every process in the sandbox whose environment carries
   the agent phase's `SWE_DRILL_START_TOKEN` is killed, whatever session or
   process group it moved to.
+- At the end of every run, the workspace paths that hold the agent's own
+  state are removed before the patch is captured, so no patch, graded snapshot
+  or later step of the task holds them.
 - The patch is captured and `suss.json` written however the run ends.
 - It takes `arm`, `lane` and `drill_config` as `--ak`, and reads the arm's
   settings and the `.env` from that `swe-drill.toml` when Harbor constructs it,
@@ -295,7 +298,8 @@ parses its output into `trajectory.json`, and records its tokens in
 
 A class names, as class attributes, the hosts its agent phase reaches in
 `ALLOWED_HOSTS`, the arm kwargs it takes in `KWARGS`, those it needs in
-`REQUIRED_KWARGS`, and whether it needs a model in `REQUIRES_MODEL`.
+`REQUIRED_KWARGS`, whether it needs a model in `REQUIRES_MODEL`, and the
+workspace paths that hold its own state in `OWNED_PATHS`.
 
 ### Agents in this repository
 
