@@ -32,8 +32,10 @@ _NO_NETWORK = b'network_mode = "no-network"'
 _ALLOWLIST = b'network_mode = "allowlist"\nallowed_hosts = ' + (
     b"[" + b", ".join(b'"' + host.encode() + b'"' for host in PYPI_HOSTS) + b"]"
 )
-# A pin of the scorer, as one word of an install command, with its version where it gives one.
-_PIN = re.compile(r"scb-check(?:==([0-9A-Za-z.]+))?")
+# A requirement naming the scorer, as one word of an install command, spelt
+# any way pip reads as the same name, with whatever follows the name.
+_SCORER = re.compile(r"scb[-_.]check(?:\[[^\]]*\])?(.*)", re.IGNORECASE)
+_EXACT = re.compile(r"==([0-9A-Za-z.]+)")
 # Shell commands that install Python packages, by their first words.
 _INSTALLERS = (
     ("uv", "tool", "install"),
@@ -102,7 +104,7 @@ def _check_scb_check(task: Path) -> None:
 def _scorer_installs(dockerfile: bytes) -> list[str]:
     """
     The version of each install of scb-check by the Dockerfile's RUN
-    instructions, or "unpinned" where one pins none.
+    instructions, as `_version` gives it.
 
     Each instruction that names scb-check is split into words and commands,
     quotes and comments included, so a pin anywhere but among an install
@@ -116,7 +118,7 @@ def _scorer_installs(dockerfile: bytes) -> list[str]:
     for instruction in _run_instructions(dockerfile):
         text = instruction.decode(errors="replace")
         # One that never names the scorer cannot install it, and need not be read.
-        if "scb-check" not in text:
+        if not re.search(r"scb[-_.]check", text, re.IGNORECASE):
             continue
         # Read without escapes below, so an escaped operator would pass for one the shell runs.
         if _ESCAPED_OPERATOR.search(text):
@@ -146,9 +148,17 @@ def _pins(command: list[str]) -> list[str]:
         command = command[1:]
     for installer in _INSTALLERS:
         if tuple(command[: len(installer)]) == installer:
-            pins = (_PIN.fullmatch(word) for word in command[len(installer) :])
-            return [pin.group(1) or "unpinned" for pin in pins if pin]
+            return [_version(word) for word in command[len(installer) :] if _SCORER.fullmatch(word)]
     return []
+
+
+def _version(requirement: str) -> str:
+    """The exact version a scorer requirement pins, "unpinned" for none, or the requirement itself for any other."""
+    rest = _SCORER.fullmatch(requirement).group(1)
+    if not rest:
+        return "unpinned"
+    exact = _EXACT.fullmatch(rest)
+    return exact.group(1) if exact else requirement
 
 
 def _run_instructions(dockerfile: bytes) -> list[bytes]:
