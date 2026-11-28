@@ -86,6 +86,12 @@ class Scripted(Adapter, Scripted):
     KWARGS = ("rounds",)
 
 
+class Owning(Scripted):
+    """A Scripted agent that keeps state of its own in the workspace, as HVE and Squiz do."""
+
+    OWNED_PATHS = (".tool", "tool.json")
+
+
 @dataclasses.dataclass
 class Trial:
     host: Path
@@ -431,6 +437,45 @@ def test_a_later_steps_patch_rebuilds_every_step_on_a_fresh_copy_of_the_image(lo
     git(fresh, "checkout", "-q", trial.base)
     git(fresh, "apply", str(trial.artifacts / "model.patch"))
     assert (fresh / "one.txt").read_text() == "first\nsecond\n"
+
+
+OWNING = "mkdir -p .tool && echo state > .tool/state && echo '{}' > tool.json && echo work > work.txt"
+
+
+def test_an_agents_own_paths_are_gone_from_the_workspace_and_its_patch(local_environment, trial):
+    trial.run(local_environment, agent=trial.agent(Owning), script=OWNING)
+
+    assert not (trial.workspace / ".tool").exists() and not (trial.workspace / "tool.json").exists()
+    patch = trial.patch()
+    assert "work.txt" in patch
+    assert ".tool" not in patch and "tool.json" not in patch, "the agent's own state is in its patch"
+
+
+def test_a_task_file_at_an_agents_own_path_fails_the_trial_and_is_left_as_it_was(local_environment, trial):
+    (trial.workspace / "tool.json").write_text("the task's\n")
+    agent = trial.agent(Owning)
+
+    with pytest.raises(Exception):
+        trial.run(local_environment, agent=agent, script="echo ran > ../ran")
+
+    assert trial.record()["status"] == "harness-failed"
+    assert not (trial.workspace.parent / "ran").exists(), "the agent started"
+    assert (trial.workspace / "tool.json").read_text() == "the task's\n"
+    assert "tool.json" not in trial.patch()
+
+
+def test_a_later_step_starts_with_none_of_the_agents_own_paths(local_environment, trial):
+    agent = trial.agent(Owning)
+    go(agent.setup(environment=local_environment))
+    run_step(trial, local_environment, agent, OWNING)
+
+    second, _ = run_step(trial, local_environment, agent, "ls -A > ../seen")
+
+    seen = (trial.workspace.parent / "seen").read_text().split()
+    assert ".tool" not in seen and "tool.json" not in seen
+    assert git(trial.workspace, "ls-tree", "-r", "--name-only", second["step"]["base"]).split() == [
+        "hello.txt", "work.txt"
+    ]
 
 
 def test_a_tasks_only_step_leaves_head_and_status_as_the_image_left_them(local_environment, trial):
