@@ -47,6 +47,8 @@ _INSTALLERS = (
 )
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 _ESCAPED_OPERATOR = re.compile(r"\\[;&|]")
+# A RUN instruction's keyword, in any case, and the whitespace Docker takes after it.
+_RUN = re.compile(rb"RUN\s+", re.IGNORECASE)
 
 
 def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
@@ -172,6 +174,7 @@ def _run_instructions(dockerfile: bytes) -> list[bytes]:
             continue
         current += line
         instruction, current = current.strip(), b""
-        if instruction[:4].upper() == b"RUN ":
-            instructions.append(instruction[4:])
+        run = _RUN.match(instruction)
+        if run:
+            instructions.append(instruction[run.end() :])
     return instructions
