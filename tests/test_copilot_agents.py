@@ -15,6 +15,7 @@ import json
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -731,6 +732,34 @@ def test_squiz_patch_is_saved_only_once_squiz_closes_after_copilot_exits(box, lo
     assert (bin_dir(box) / "review.cwd").read_text().strip() == str(box / "sandbox" / "gleam")
 
 
+def next_step(box: Path, env, the_agent) -> None:
+    """The next step of a task, as Harbor runs it: the step's logs moved away, and the same agent run again."""
+    shutil.move(logs(box), logs(box).with_name("agent-step-1"))
+    logs(box).mkdir()
+    go(the_agent.run(INSTRUCTION, env, AgentContext()))
+
+
+def test_squiz_reviews_every_step_of_a_task_in_an_episode_of_its_own(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    reviews(box, (2, THREADS), (0, "Reviewed clean.\n"), (0, "Reviewed clean.\n"))
+    the_agent = squiz_agent(box)
+    run(box, local_environment, the_agent)
+
+    next_step(box, local_environment, the_agent)
+
+    workspace = box / "sandbox" / "gleam"
+    first = logs(box).with_name("agent-step-1")
+    assert json.loads((first / "suss.json").read_text())["squiz"]["review_exits"] == [2, 0]
+    assert record(box)["status"] == "ok"
+    assert record(box)["squiz"]["review_exits"] == [0]
+    assert record(box)["squiz"]["loaded"]
+    assert (first / "squiz" / "base.json").exists() and (logs(box) / "squiz" / "base.json").exists()
+    assert not (workspace / ".squiz").exists() and not (workspace / ".squiz.json").exists()
+    step_patch = (logs(box) / "step.patch").read_text()
+    assert ".squiz" not in step_patch and "a known change" in step_patch
+
+
 def test_a_fix_resumes_the_agents_session_on_squiz_reviews_output_unedited(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
     squiz_host(box, CLOSING_HOST)
@@ -840,7 +869,7 @@ def test_squiz_is_configured_for_the_local_venue_with_copilot_reviewing_and_no_f
 
     run(box, local_environment, squiz_agent(box))
 
-    settings = json.loads((box / "sandbox" / "gleam" / ".squiz.json").read_text())
+    settings = json.loads((logs(box) / "squiz.json").read_text())
     assert settings == {
         "venue": "local",
         "reviewer": "copilot",
@@ -854,7 +883,7 @@ def test_squizs_reviewer_runs_on_the_arms_reviewer_model_and_effort(box, local_e
 
     run(box, local_environment, squiz_agent(box, reviewer_model="claude-sonnet-5.5", reviewer_effort="high"))
 
-    settings = json.loads((box / "sandbox" / "gleam" / ".squiz.json").read_text())
+    settings = json.loads((logs(box) / "squiz.json").read_text())
     assert (settings["model"], settings["thinking"]) == ("claude-sonnet-5.5", "high")
 
 

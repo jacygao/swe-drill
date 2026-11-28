@@ -48,8 +48,9 @@ class CopilotCliSquiz(CopilotCli):
     stopped or the patch captured until the episode closes.
 
     squiz keeps its settings in the workspace's .squiz.json and its state in
-    .squiz/, which .git/info/exclude keeps out of the patch. Its state is
-    copied to the logs once the run ends.
+    .squiz/, which .git/info/exclude keeps out of the patch. Both are the
+    agent's own, so each step of a task reviews its own change in an episode
+    of its own, and its state is copied to that step's logs once the run ends.
 
     Copilot CLI gives its hooks no COPILOT_GITHUB_TOKEN, so squiz's reviewer
     signs in from a token file outside the workspace, which exists only while
@@ -58,6 +59,7 @@ class CopilotCliSquiz(CopilotCli):
 
     KWARGS = (*CopilotCli.KWARGS, "squiz_version", "reviewer_model", "reviewer_effort")
     REQUIRED_KWARGS = ("version", "squiz_version")
+    OWNED_PATHS = (".squiz.json", ".squiz")
     # squiz's hooks and its wake run only with Copilot CLI's experimental features on.
     GLOBAL_FLAGS = ("--experimental",)
     AFTER_AGENT_TIMED_OUT = "review-timed-out"
@@ -189,8 +191,7 @@ class CopilotCliSquiz(CopilotCli):
         then the workspace's .squiz.json, and keep it and .squiz/ out of git.
 
         Raises NonZeroAgentExitCodeError, so the trial is graded with no change,
-        when the workspace already has either, which is the task's, or when its
-        own ignore rules keep either in the patch.
+        when the workspace's own ignore rules keep either in the patch.
         """
         if self._token_file is None:
             raise RuntimeError("CopilotCliSquiz ran before install placed squiz")
@@ -208,14 +209,12 @@ class CopilotCliSquiz(CopilotCli):
         settings = shlex.quote(json.dumps({**SETTINGS, **self.reviewer, "copilotTokenFile": self._token_file}))
         result = await environment.exec(
             "fail() { echo \"$1\"; exit 1; }; "
-            "for path in .squiz.json .squiz; do"
-            ' if [ -e "$path" ] || [ -L "$path" ]; then'
-            " fail \"the workspace already has $path, where squiz keeps its settings and state\"; fi; done; "
             "exclude=$(git rev-parse --git-path info/exclude)"
             " || fail 'git cannot find the workspace'\"'\"'s info/exclude'; "
             'mkdir -p "${exclude%/*}" || fail "cannot make ${exclude%/*}"; '
-            # The newline first, in case the file does not end in one.
-            "printf '\\n/.squiz.json\\n/.squiz/\\n' >> \"$exclude\" || fail \"cannot write $exclude\"; "
+            # The newline first, in case the file does not end in one. Once, though every step runs this.
+            "grep -qxF /.squiz/ \"$exclude\" 2>/dev/null"
+            " || printf '\\n/.squiz.json\\n/.squiz/\\n' >> \"$exclude\" || fail \"cannot write $exclude\"; "
             # The repository's own .gitignore outranks info/exclude, and can unignore either.
             "{ git check-ignore -q .squiz.json && git check-ignore -q .squiz/; }"
             " || fail 'the workspace'\"'\"'s ignore rules keep .squiz.json or .squiz/, so squiz'\"'\"'s files"
@@ -296,15 +295,20 @@ class CopilotCliSquiz(CopilotCli):
         result = await self.exec_as_agent(environment, f"{command}; printf '\\n%s' $?", cwd=self._prepared[0])
         return int((result.stdout or "").rsplit("\n", 1)[-1])
 
-    async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:
-        """Remove the token file, copy squiz's state to the logs, then record the trial as CopilotCli does."""
-        if self._token_file is not None:
-            await environment.exec(f"rm -f {shlex.quote(self._token_file)}")
+    async def _keep_owned(self, environment: BaseEnvironment) -> None:
+        """Copy squiz's settings, and its state less its objects, to the logs, before the adapter removes them."""
         kept = shlex.quote(self._kept())
         local = shlex.quote(self._local())
+        settings = shlex.quote(f"{self._prepared[0]}/.squiz.json")
         await environment.exec(
-            f"rm -rf {kept}; if [ -d {local} ]; then cp -R {local} {kept} && rm -rf {kept}/objects; fi"
+            f"rm -rf {kept}; if [ -d {local} ]; then cp -R {local} {kept} && rm -rf {kept}/objects; fi;"
+            f" if [ -f {settings} ]; then cp {settings} {shlex.quote(self._kept() + '.json')}; fi"
         )
+
+    async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:
+        """Remove the token file, then record the trial as CopilotCli does."""
+        if self._token_file is not None:
+            await environment.exec(f"rm -f {shlex.quote(self._token_file)}")
         await super()._record(environment, status, run_seconds)
 
     async def _usage(self, environment: BaseEnvironment) -> dict[str, Any]:

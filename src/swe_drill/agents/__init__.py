@@ -70,7 +70,7 @@ class Adapter:
     agent's own state rather than its work. At the end of every run they are
     removed from the workspace before the patch is captured, so no patch and
     no later step of the task holds them. An agent keeps what it needs of them
-    in its logs during _after_agent.
+    in its logs in _keep_owned, which runs just before, however the run ended.
     """
 
     ALLOWED_HOSTS: ClassVar[tuple[str, ...]] = ()
@@ -298,9 +298,13 @@ class Adapter:
                 )
         self._owned_absent = True
 
+    async def _keep_owned(self, environment: BaseEnvironment) -> None:
+        """Copy what the agent needs of OWNED_PATHS into its logs. Nothing, unless an agent keeps something."""
+
     async def _remove_owned(self, environment: BaseEnvironment) -> None:
         if not self.OWNED_PATHS or not self._owned_absent:
             return
+        await self._keep_owned(environment)
         paths = " ".join(shlex.quote(path) for path in self.OWNED_PATHS)
         await sandbox.run(environment, f"cd {shlex.quote(self._prepared[0])} && rm -rf -- {paths}")
 

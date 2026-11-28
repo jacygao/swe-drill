@@ -379,7 +379,9 @@ A trial runs like this:
 
 Each review's output is kept as `/logs/agent/squiz-loop/<n>.review.txt`, and
 each fix's stream as `<n>.fixer.jsonl`. Once the loop ends, squiz's own state,
-less its objects, is kept under `/logs/agent/squiz/`. The reviewer signs in
+less its objects, is kept under `/logs/agent/squiz/`, and its settings as
+`/logs/agent/squiz.json`. Each step of a task reviews that step's change, in an
+episode of its own. The reviewer signs in
 with the arm's `COPILOT_GITHUB_TOKEN` alone, from a file only the agent's user
 can read, which is removed before the patch is captured.
 
