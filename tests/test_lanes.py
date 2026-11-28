@@ -1128,6 +1128,16 @@ def test_a_slopcodebench_copy_reaches_pypi_and_grades_every_step_in_a_separate_v
     assert sorted(entry.name for entry in built.iterdir()) == ["cfgpipe"]
 
 
+def test_a_slopcodebench_image_that_installs_scb_check_across_continued_lines_is_built(tmp_path: Path):
+    dockerfile = SCB_DOCKERFILE.replace(
+        'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+        'RUN UV_TOOL_DIR=/opt/uv-tools \\\n    uv tool install --no-cache "scb-check==0.1.3"',
+    )
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], dockerfile=dockerfile)
+
+    lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+
 @pytest.mark.parametrize(
     "step_line",
     ['environment_mode = "shared"', 'environment_mode = "separate"'],
@@ -1165,8 +1175,13 @@ def test_a_slopcodebench_task_that_sets_its_agents_network_is_refused_naming_it(
         SCB_DOCKERFILE.replace("scb-check==0.1.3", "scb-check==0.1.4"),
         SCB_DOCKERFILE.replace('"scb-check==0.1.3"', "scb-check"),
         SCB_DOCKERFILE + 'RUN uv tool install "scb-check==0.1.3"\n',
+        SCB_DOCKERFILE.replace("RUN UV_TOOL_DIR", "# RUN UV_TOOL_DIR"),
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            'LABEL scorer="scb-check==0.1.3"',
+        ),
     ],
-    ids=["another-version", "unpinned", "twice"],
+    ids=["another-version", "unpinned", "twice", "commented-out", "outside-run"],
 )
 def test_a_slopcodebench_image_that_installs_another_scb_check_is_refused_naming_it(tmp_path: Path, dockerfile):
     source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], dockerfile=dockerfile)

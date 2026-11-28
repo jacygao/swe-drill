@@ -71,9 +71,28 @@ def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
 
 def _check_scb_check(task: Path) -> None:
     dockerfile = read_task_file(task, DOCKERFILE, "build the slopcodebench lane")
-    installs = [found.decode() or "unpinned" for found in _SCB_CHECK.findall(dockerfile)]
+    installs = [
+        found.decode() or "unpinned" for command in _run_commands(dockerfile) for found in _SCB_CHECK.findall(command)
+    ]
     if installs != [SCB_CHECK]:
         raise LaneError(
             f"{task / DOCKERFILE}: installs scb-check as {', '.join(installs) or 'nothing'},"
             f" but the lane records scores from scb-check {SCB_CHECK}, installed once"
         )
+
+
+def _run_commands(dockerfile: bytes) -> list[bytes]:
+    """Each RUN instruction of the Dockerfile, its continued lines joined, with no comment line in it."""
+    commands, current = [], b""
+    for line in dockerfile.splitlines():
+        if line.lstrip().startswith(b"#"):
+            continue
+        stripped = line.rstrip()
+        if stripped.endswith(b"\\"):
+            current += stripped[:-1] + b" "
+            continue
+        current += line
+        if current.lstrip()[:4].upper() == b"RUN ":
+            commands.append(current)
+        current = b""
+    return commands
