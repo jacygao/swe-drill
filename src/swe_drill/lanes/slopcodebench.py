@@ -45,8 +45,6 @@ _INSTALLERS = (
     ("python", "-m", "pip", "install"),
     ("python3", "-m", "pip", "install"),
 )
-# Where one shell command ends and the next begins.
-_OPERATORS = {"&&", "||", ";", "|", "&"}
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 _ESCAPED_OPERATOR = re.compile(r"\\[;&|]")
 
@@ -106,13 +104,14 @@ def _scorer_installs(dockerfile: bytes) -> list[str]:
     The version of each install of scb-check by the Dockerfile's RUN
     instructions, as `_version` gives it.
 
-    Each instruction that names scb-check is split into words and commands,
-    quotes and comments included, so a pin anywhere but among an install
-    command's own words, such as in an echo's argument, a comment or a LABEL,
-    installs nothing and is not counted. Raises ValueError for such an
-    instruction the split cannot read, such as one whose quote is never
-    closed or that escapes an operator, so that a form it cannot establish is
-    refused rather than counted.
+    Each instruction that names scb-check must be one plain command, after
+    any VAR=value it sets, read with its quotes and comments, so a pin
+    anywhere but among an install command's own words, such as in an echo's
+    argument, a comment or a LABEL, installs nothing and is not counted.
+    Raises ValueError for such an instruction that is more than one command,
+    redirects or opens a subshell, does a dry run, escapes an operator, or
+    cannot be read, such as one whose quote is never closed, so that a form
+    whose install cannot be established is refused rather than counted.
     """
     versions = []
     for instruction in _run_instructions(dockerfile):
@@ -126,13 +125,11 @@ def _scorer_installs(dockerfile: bytes) -> list[str]:
         # Not POSIX, so a quoted operator keeps its quotes and is never taken for one.
         lexer = shlex.shlex(text, posix=False, punctuation_chars=True)
         lexer.whitespace_split = True
-        command: list[str] = []
-        for word in [*lexer, ";"]:
-            if word not in _OPERATORS:
-                command.append(_unquoted(word))
-                continue
-            versions += _pins(command)
-            command = []
+        words = list(lexer)
+        # Whether a command after an operator, a redirect or a subshell runs is the shell's to decide.
+        if any(word and set(word) <= set(lexer.punctuation_chars) for word in words):
+            raise ValueError("the instruction that names scb-check is more than one plain command")
+        versions += _pins([_unquoted(word) for word in words])
     return versions
 
 
@@ -148,6 +145,8 @@ def _pins(command: list[str]) -> list[str]:
         command = command[1:]
     for installer in _INSTALLERS:
         if tuple(command[: len(installer)]) == installer:
+            if "--dry-run" in command:
+                raise ValueError("a dry run installs nothing")
             return [_version(word) for word in command[len(installer) :] if _SCORER.fullmatch(word)]
     return []
 

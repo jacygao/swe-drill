@@ -1221,11 +1221,24 @@ def test_a_slopcodebench_task_that_sets_its_agents_network_is_refused_naming_it(
         SCB_DOCKERFILE + "RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --force 'scb-check>=0.1.3'\n",
         SCB_DOCKERFILE + "RUN pip install SCB_Check\n",
         SCB_DOCKERFILE + "RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --force 'scb__check>=0.1.3'\n",
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            "RUN true || uv tool install scb-check==0.1.3",
+        ),
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            "RUN mkdir -p /opt && uv tool install scb-check==0.1.3",
+        ),
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            "RUN pip install --dry-run scb-check==0.1.3",
+        ),
     ],
     ids=[
         "another-version", "unpinned", "twice", "commented-out", "outside-run", "inline-comment", "echoed",
         "quoted-command", "unclosed-quote", "quoted-operator", "escaped-operator",
-        "then-a-range", "then-another-spelling", "then-a-separator-run",
+        "then-a-range", "then-another-spelling", "then-a-separator-run", "short-circuited", "in-a-chain",
+        "dry-run",
     ],
 )
 def test_a_slopcodebench_image_that_installs_another_scb_check_is_refused_naming_it(tmp_path: Path, dockerfile):
