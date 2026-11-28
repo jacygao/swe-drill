@@ -34,7 +34,7 @@ _ALLOWLIST = b'network_mode = "allowlist"\nallowed_hosts = ' + (
 )
 # A requirement naming the scorer, as one word of an install command, spelt
 # any way pip reads as the same name, with whatever follows the name.
-_SCORER = re.compile(r"scb[-_.]check(?:\[[^\]]*\])?(.*)", re.IGNORECASE)
+_SCORER = re.compile(r"scb[-_.]+check(?:\[[^\]]*\])?(.*)", re.IGNORECASE)
 _EXACT = re.compile(r"==([0-9A-Za-z.]+)")
 # Shell commands that install Python packages, by their first words.
 _INSTALLERS = (
@@ -118,7 +118,7 @@ def _scorer_installs(dockerfile: bytes) -> list[str]:
     for instruction in _run_instructions(dockerfile):
         text = instruction.decode(errors="replace")
         # One that never names the scorer cannot install it, and need not be read.
-        if not re.search(r"scb[-_.]check", text, re.IGNORECASE):
+        if not re.search(r"scb[-_.]+check", text, re.IGNORECASE):
             continue
         # Read without escapes below, so an escaped operator would pass for one the shell runs.
         if _ESCAPED_OPERATOR.search(text):
