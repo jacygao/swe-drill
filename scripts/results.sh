@@ -25,8 +25,9 @@ command -v azcopy > /dev/null || { echo "azcopy: no such program; install it, fo
 export AZCOPY_AUTO_LOGIN_TYPE=AZCLI
 
 # The files `swe-drill leaderboard` and scripts/insights.py read in each job
-# and trial. output.json is SWE-bench Pro's parsed test results.
-READ="result.json;config.json;suss.json;replay.json;report.json;output.json"
+# and trial, and in each step of a trial. output.json is SWE-bench Pro's parsed
+# test results, and reward_details.json is whether slopcodebench's scorer ran.
+READ="result.json;config.json;suss.json;replay.json;report.json;output.json;reward_details.json"
 
 case $command in
   up)
