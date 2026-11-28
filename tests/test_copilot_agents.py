@@ -28,6 +28,7 @@ from harbor.agents.installed.copilot_cli import CopilotCli as HarborCopilotCli
 from harbor.models.agent.context import AgentContext
 from harbor.models.trial.config import AgentConfig as TrialAgentConfig
 
+import swe_drill.agents.squiz as squiz_module
 from swe_drill.agents.copilot_cli import CopilotCli
 from swe_drill.agents import squiz as squiz_agent_module
 from swe_drill.agents.hve import CopilotCliHve, full_auto_prompt
@@ -662,7 +663,8 @@ FAKE_NODE = """#!/bin/sh
 if [ "$1" = --version ]; then echo v24.15.0; exit 0; fi
 exec /bin/sh "$@"
 """
-# `review` prints review.<n>.out and exits review.<n>.exit, 0 where the test gave none, for its nth call.
+# `review` prints review.<n>.out, and review.<n>.err to stderr, and exits review.<n>.exit, 0 where the test
+# gave none, for its nth call.
 FAKE_SQUIZ_CLI = """root=$(cd "$(dirname "$0")/.." && pwd)
 [ "$1" = version ] && echo "squiz VERSION $root/bin/squiz"
 if [ "$1" = review ]; then
@@ -672,6 +674,7 @@ if [ "$1" = review ]; then
     pwd > "$here/review.cwd"
     [ -f "$here/review.sleep" ] && sleep "$(cat "$here/review.sleep")"
     cat "$here/review.$n.out" 2>/dev/null
+    cat "$here/review.$n.err" >&2 2>/dev/null
     exit "$(cat "$here/review.$n.exit" 2>/dev/null || echo 0)"
 fi
 """
@@ -754,6 +757,88 @@ def test_squiz_patch_is_saved_only_once_squiz_closes_after_copilot_exits(box, lo
     assert record(box)["status"] == "ok"
     assert record(box)["squiz"]["review_exits"] == [2, 0]
     assert (bin_dir(box) / "review.cwd").read_text().strip() == str(box / "sandbox" / "gleam")
+
+
+def test_a_squiz_review_that_fails_keeps_what_it_printed_to_stderr(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    reviews(box, (1, ""))
+    (bin_dir(box) / "review.1.err").write_text("squiz: no review ran: the head could not be committed\n")
+
+    run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["status"] == "review-stopped"
+    assert (logs(box) / "squiz-loop" / "1.review.err").read_text() == (
+        "squiz: no review ran: the head could not be committed\n"
+    )
+
+
+def test_a_later_step_refused_for_squizs_paths_records_no_review(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    reviews(box, (0, "Reviewed clean.\n"))
+    the_agent = squiz_agent(box)
+    run(box, local_environment, the_agent)
+    (box / "sandbox" / "gleam" / ".squiz.json").write_text("{}")
+
+    with pytest.raises(NonZeroAgentExitCodeError, match="already has .squiz.json"):
+        next_step(box, local_environment, the_agent)
+
+    assert record(box)["status"] == "harness-failed"
+    assert record(box)["squiz"]["review_exits"] == []
+
+
+def test_squizs_token_file_is_gone_when_keeping_its_state_is_cancelled(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    real = squiz_module.sandbox.run
+
+    async def cancelled_copy(env, command, user=None):
+        # As the cleanup time limit cancels a copy still running.
+        if "cp -R" in command:
+            raise asyncio.CancelledError()
+        return await real(env, command, user)
+
+    monkeypatch.setattr(squiz_module.sandbox, "run", cancelled_copy)
+
+    with pytest.raises(asyncio.CancelledError):
+        run(box, local_environment, squiz_agent(box))
+
+    assert not (box / "sandbox" / "home" / ".local" / "share" / "swe-drill" / "copilot-token").exists()
+
+
+def test_squiz_adds_whichever_of_its_exclusions_info_exclude_lacks(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    exclude = box / "sandbox" / "gleam" / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    exclude.write_text("/.squiz/\n")
+
+    run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["status"] == "ok"
+    assert exclude.read_text().splitlines().count("/.squiz.json") == 1
+    assert exclude.read_text().splitlines().count("/.squiz/") == 1
+
+
+def test_squiz_reviews_every_step_of_a_task_in_an_episode_of_its_own(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    reviews(box, (2, THREADS), (0, "Reviewed clean.\n"), (0, "Reviewed clean.\n"))
+    the_agent = squiz_agent(box)
+    run(box, local_environment, the_agent)
+
+    next_step(box, local_environment, the_agent)
+
+    workspace = box / "sandbox" / "gleam"
+    first = logs(box).with_name("agent-step-1")
+    assert json.loads((first / "suss.json").read_text())["squiz"]["review_exits"] == [2, 0]
+    assert record(box)["status"] == "ok"
+    assert record(box)["squiz"]["review_exits"] == [0]
+    assert record(box)["squiz"]["loaded"]
+    assert (first / "squiz" / "base.json").exists() and (logs(box) / "squiz" / "base.json").exists()
+    assert not (workspace / ".squiz").exists() and not (workspace / ".squiz.json").exists()
+    step_patch = (logs(box) / "step.patch").read_text()
+    assert ".squiz" not in step_patch and "a known change" in step_patch
 
 
 def test_a_fix_resumes_the_agents_session_on_squiz_reviews_output_unedited(box, local_environment, monkeypatch):
@@ -865,7 +950,7 @@ def test_squiz_is_configured_for_the_local_venue_with_copilot_reviewing_and_no_f
 
     run(box, local_environment, squiz_agent(box))
 
-    settings = json.loads((box / "sandbox" / "gleam" / ".squiz.json").read_text())
+    settings = json.loads((logs(box) / "squiz.json").read_text())
     assert settings == {
         "venue": "local",
         "reviewer": "copilot",
@@ -879,7 +964,7 @@ def test_squizs_reviewer_runs_on_the_arms_reviewer_model_and_effort(box, local_e
 
     run(box, local_environment, squiz_agent(box, reviewer_model="claude-sonnet-5.5", reviewer_effort="high"))
 
-    settings = json.loads((box / "sandbox" / "gleam" / ".squiz.json").read_text())
+    settings = json.loads((logs(box) / "squiz.json").read_text())
     assert (settings["model"], settings["thinking"]) == ("claude-sonnet-5.5", "high")
 
 

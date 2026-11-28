@@ -92,6 +92,23 @@ class Owning(Scripted):
     OWNED_PATHS = (".tool", "tool.json")
 
 
+class FailingToKeep(Owning):
+    """An Owning agent whose copy of its state fails, as one would on a full disk."""
+
+    async def _keep_owned(self, environment) -> None:
+        raise RuntimeError("cannot copy .tool to the logs")
+
+
+class Keeping(Owning):
+    """An Owning agent that keeps a copy of its state in its logs, as Squiz does."""
+
+    async def _keep_owned(self, environment) -> None:
+        await environment.exec(
+            f"mkdir -p {shlex.quote(self.sandbox_logs)} && cp -R .tool {shlex.quote(self.sandbox_logs + '/kept-tool')}",
+            cwd=self._prepared[0],
+        )
+
+
 @dataclasses.dataclass
 class Trial:
     host: Path
@@ -478,6 +495,36 @@ def test_a_task_file_at_an_agents_own_path_fails_the_trial_and_is_left_as_it_was
     assert not (trial.workspace.parent / "ran").exists(), "the agent started"
     assert (trial.workspace / "tool.json").read_text() == "the task's\n"
     assert "tool.json" not in trial.patch()
+
+
+@pytest.mark.parametrize("ending", ["", "; exit 1"], ids=["ok", "failed"])
+def test_an_agent_keeps_its_own_state_in_its_logs_before_it_is_removed(local_environment, trial, ending):
+    try:
+        trial.run(local_environment, agent=trial.agent(Keeping), script=OWNING + ending)
+    except Exception:
+        pass
+
+    assert (trial.logs / "kept-tool" / "state").read_text() == "state\n"
+    assert not (trial.workspace / ".tool").exists()
+
+
+def test_an_agent_whose_state_cannot_be_kept_keeps_it_in_the_workspace_and_fails(local_environment, trial):
+    with pytest.raises(RuntimeError, match="cannot copy .tool"):
+        trial.run(local_environment, agent=trial.agent(FailingToKeep), script=OWNING)
+
+    assert (trial.workspace / ".tool" / "state").read_text() == "state\n"
+    assert trial.record()["status"] == "harness-failed"
+    patch = trial.patch()
+    assert "work.txt" in patch
+    assert ".tool" not in patch and "tool.json" not in patch, "the agent's own state is in its patch"
+
+
+def test_an_agents_own_paths_stay_out_of_its_patch_when_it_commits_them(local_environment, trial):
+    trial.run(local_environment, agent=trial.agent(Owning), script=OWNING + " && git add -f -A && git -c user.name=a -c user.email=a@a commit -qm mine")
+
+    patch = trial.patch()
+    assert "work.txt" in patch
+    assert ".tool" not in patch and "tool.json" not in patch, "the agent's own state is in its patch"
 
 
 def test_a_later_step_starts_with_none_of_the_agents_own_paths(local_environment, trial):

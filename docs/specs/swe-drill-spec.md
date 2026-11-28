@@ -295,9 +295,11 @@ parses its output into `trajectory.json`, and records its tokens in
 - When the run ends, every process in the sandbox whose environment carries
   the agent phase's `SWE_DRILL_START_TOKEN` is killed, whatever session or
   process group it moved to.
-- At the end of every run, the workspace paths that hold the agent's own
-  state are removed before the patch is captured, so no patch, graded snapshot
-  or later step of the task holds them. A run that finds one of them already
+- No patch holds the workspace paths that hold the agent's own state. At the
+  end of every run, once the agent has kept what it needs of them in its logs,
+  they are removed, so no graded snapshot or later step of the task holds them
+  either. A run whose agent cannot keep them leaves them in place, and is
+  `harness-failed`. A run that finds one of them already
   there is `harness-failed`, with the agent never started, and leaves it as it
   was.
 - The patch is captured and `suss.json` written however the run ends.
@@ -378,9 +380,12 @@ A trial runs like this:
    fails, or any other outcome, `harness-failed`.
 4. Squiz's round cap ends the loop, and Harbor's agent timeout bounds it.
 
-Each review's output is kept as `/logs/agent/squiz-loop/<n>.review.txt`, and
-each fix's stream as `<n>.fixer.jsonl`. Once the loop ends, squiz's own state,
-less its objects, is kept under `/logs/agent/squiz/`. The reviewer signs in
+Each review's output is kept as `/logs/agent/squiz-loop/<n>.review.txt`, what
+it printed to stderr as `<n>.review.err`, and each fix's stream as
+`<n>.fixer.jsonl`. Once the loop ends, squiz's own state,
+less its objects, is kept under `/logs/agent/squiz/`, and its settings as
+`/logs/agent/squiz.json`. Each step of a task reviews that step's change, in an
+episode of its own. The reviewer signs in
 with the arm's `COPILOT_GITHUB_TOKEN` alone, from a file only the agent's user
 can read, which is removed before the patch is captured.
 

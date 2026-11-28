@@ -6,6 +6,7 @@ workspace is there and not on the machine running SWE-drill.
 """
 
 import shlex
+from collections.abc import Sequence
 
 from harbor.environments.base import BaseEnvironment
 
@@ -65,8 +66,8 @@ async def make_workspace(env: BaseEnvironment) -> str:
     directory. One that holds files and no repository is refused as
     `find_workspace` refuses it, since the image has then lost the repository
     its files belong to. The repository is made by the sandbox's default user,
-    who runs the agent's commands too, and marked safe in that user's git
-    config whoever owns the directory.
+    who runs the agent's commands too, and who first takes the empty
+    directory where another user owns it.
     """
     start = (await _run(env, "pwd")).removesuffix("\n")
     quoted = shlex.quote(start)
@@ -77,10 +78,14 @@ async def make_workspace(env: BaseEnvironment) -> str:
     )
     if empty.return_code == 0:
         # Git refuses a repository in a directory another user owns, as an
-        # image's WORKDIR often is, to this user and to the agent alike.
+        # image's WORKDIR often is, to this user and to the agent alike. Owning
+        # the empty directory ends that for every git, even one that reads no
+        # global config, as squiz's commits do. Where this user cannot take it,
+        # the global config marks it safe instead.
         await _run(
             env,
-            f"git config --global --add safe.directory {quoted} 2>&1"
+            f"{{ [ -O {quoted} ] || chown \"$(id -u):$(id -g)\" {quoted} 2>/dev/null"
+            f" || git config --global --add safe.directory {quoted} 2>&1; }}"
             f" && git -C {quoted} init -q 2>&1"
             f" && git -C {quoted} {_COMMIT} --allow-empty -m 'Empty workspace' 2>&1",
         )
@@ -137,11 +142,17 @@ async def read_start_tree(env: BaseEnvironment, workspace: str) -> str:
 
 
 async def capture_patch(
-    env: BaseEnvironment, workspace: str, start: str, logs_dir: str = LOGS_DIR, name: str = PATCH_NAME
+    env: BaseEnvironment,
+    workspace: str,
+    start: str,
+    logs_dir: str = LOGS_DIR,
+    name: str = PATCH_NAME,
+    leave_out: Sequence[str] = (),
 ) -> int:
     """
     Write the whole change from the tree `start` names to `name` in the logs
-    directory, and return its size in bytes.
+    directory, and return its size in bytes, leaving out the workspace paths
+    in `leave_out` and everything under them.
 
     The change is the same whether the harness committed it, staged it or left
     it in the working tree. A workspace with no change gives an empty patch.
@@ -170,6 +181,7 @@ async def capture_patch(
         ' done < "$list" | git update-index -z --add --stdin; } 2>&1;'
         ' status=$?; [ -n "$list" ] && rm -f "$list"; exit $status',
     )
+    excluded = " ".join(shlex.quote(f":(exclude,literal,top){path}") for path in leave_out)
     # Git writes the file itself, because exec returns stdout as decoded text,
     # which corrupts any byte that is not valid UTF-8. The flags after --binary
     # stop the repository's config writing a patch that does not apply.
@@ -177,7 +189,7 @@ async def capture_patch(
         env,
         f"{git} diff --cached --binary"
         " --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/"
-        f" {shlex.quote(start)} -- > {patch}",
+        f" {shlex.quote(start)} -- . {excluded} > {patch}",
     )
     return int(await _run(env, f"wc -c < {patch}"))
 

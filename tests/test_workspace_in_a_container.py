@@ -75,3 +75,10 @@ def test_an_empty_workdir_another_user_owns_becomes_a_repository_git_will_use(co
     # The agent's own commands run as the same user, and use git there too.
     status = asyncio.run(container_environment.exec("git status --porcelain && git log --oneline", cwd="/app"))
     assert status.return_code == 0, status.stdout
+    # As squiz commits its head, with no system or global config to mark the directory safe.
+    isolated = asyncio.run(
+        container_environment.exec(
+            "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git status --porcelain 2>&1", cwd="/app"
+        )
+    )
+    assert isolated.return_code == 0, isolated.stdout

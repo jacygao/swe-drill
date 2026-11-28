@@ -70,7 +70,7 @@ class Adapter:
     agent's own state rather than its work. At the end of every run they are
     removed from the workspace before the patch is captured, so no patch and
     no later step of the task holds them. An agent keeps what it needs of them
-    in its logs during _after_agent.
+    in its logs in _keep_owned, which runs just before, however the run ended.
     """
 
     ALLOWED_HOSTS: ClassVar[tuple[str, ...]] = ()
@@ -267,13 +267,20 @@ class Adapter:
         """
         Stop everything the agent started, remove OWNED_PATHS, capture the
         patch and write suss.json, then raise what the run raised.
+
+        Where _keep_owned fails, OWNED_PATHS are left in the workspace, the
+        trial is `harness-failed`, and that failure is raised once the record
+        is written, unless the run already raised.
         """
         await sandbox.stop_marked(environment, token)
         try:
             # Harbor waits on a cancelled agent with no limit.
             cleanup = CLEANUP_SECONDS if isinstance(raised, asyncio.CancelledError) else None
             async with asyncio.timeout(cleanup):
-                await self._remove_owned(environment)
+                try:
+                    await self._remove_owned(environment)
+                except Exception as error:
+                    status, raised = "harness-failed", raised or error
                 await self._record(environment, status, run_seconds)
         except BaseException as error:
             # The capture's error is the trial's, since with no patch the
@@ -298,16 +305,26 @@ class Adapter:
                 )
         self._owned_absent = True
 
+    async def _keep_owned(self, environment: BaseEnvironment) -> None:
+        """
+        Copy what the agent needs of OWNED_PATHS into its logs. Nothing, unless
+        an agent keeps something. Raises when it cannot, so nothing is removed.
+        """
+
     async def _remove_owned(self, environment: BaseEnvironment) -> None:
         if not self.OWNED_PATHS or not self._owned_absent:
             return
+        # Raises where the agent cannot keep them, and then they stay where they are.
+        await self._keep_owned(environment)
         paths = " ".join(shlex.quote(path) for path in self.OWNED_PATHS)
         await sandbox.run(environment, f"cd {shlex.quote(self._prepared[0])} && rm -rf -- {paths}")
 
     async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:
         """Capture the patch, copy it to the artifacts directory, then write suss.json beside it."""
         workspace, base, start_tree = self._prepared
-        patch_bytes = await capture_patch(environment, workspace, start_tree, self.sandbox_logs)
+        patch_bytes = await capture_patch(
+            environment, workspace, start_tree, self.sandbox_logs, leave_out=self.OWNED_PATHS
+        )
         logs = f"{self.sandbox_logs.rstrip('/')}/{PATCH_NAME}"
         # Harbor collects only the artifacts directory for a verifier in a
         # sandbox of its own, so the copy is the patch that verifier grades.
@@ -320,7 +337,7 @@ class Adapter:
         if self._step is not None:
             step_base, step_tree = self._step
             step_bytes = await capture_patch(
-                environment, workspace, step_tree, self.sandbox_logs, STEP_PATCH_NAME
+                environment, workspace, step_tree, self.sandbox_logs, STEP_PATCH_NAME, self.OWNED_PATHS
             )
             step = {"step": {"base": step_base, "patch_bytes": step_bytes}}
         record = {
