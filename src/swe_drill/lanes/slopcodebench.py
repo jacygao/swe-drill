@@ -10,6 +10,7 @@ sets no mode of its own.
 """
 
 import re
+import shlex
 import tomllib
 from pathlib import Path
 
@@ -31,14 +32,20 @@ _NO_NETWORK = b'network_mode = "no-network"'
 _ALLOWLIST = b'network_mode = "allowlist"\nallowed_hosts = ' + (
     b"[" + b", ".join(b'"' + host.encode() + b'"' for host in PYPI_HOSTS) + b"]"
 )
-# Each install's pinned version, or empty where it pins none.
-_SCB_CHECK = re.compile(rb"scb-check(?:==([0-9A-Za-z.]+))?")
-# A shell command that installs Python packages, after any VAR=value it sets.
-_INSTALL = re.compile(rb"^(?:\S+=\S*\s+)*(?:uv tool install|uv pip install|pip3? install|python3? -m pip install)\b")
+# A pin of the scorer, as one word of an install command, with its version where it gives one.
+_PIN = re.compile(r"scb-check(?:==([0-9A-Za-z.]+))?")
+# Shell commands that install Python packages, by their first words.
+_INSTALLERS = (
+    ("uv", "tool", "install"),
+    ("uv", "pip", "install"),
+    ("pip", "install"),
+    ("pip3", "install"),
+    ("python", "-m", "pip", "install"),
+    ("python3", "-m", "pip", "install"),
+)
 # Where one shell command ends and the next begins.
-_SEPARATOR = re.compile(rb"&&|\|\||;|\|")
-# A shell comment, from a # at the start of a word to the end of the line.
-_COMMENT = re.compile(rb"(?:^|\s)#.*$", re.MULTILINE)
+_OPERATORS = {"&&", "||", ";", "|", "&"}
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
@@ -77,11 +84,13 @@ def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
 
 def _check_scb_check(task: Path) -> None:
     dockerfile = read_task_file(task, DOCKERFILE, "build the slopcodebench lane")
-    installs = [
-        found.decode() or "unpinned"
-        for command in _install_commands(dockerfile)
-        for found in _SCB_CHECK.findall(command)
-    ]
+    try:
+        installs = _scorer_installs(dockerfile)
+    except ValueError as error:
+        raise LaneError(
+            f"{task / DOCKERFILE}: a RUN instruction cannot be read as shell ({error}), so the lane"
+            " cannot tell whether it installs scb-check"
+        ) from None
     if installs != [SCB_CHECK]:
         raise LaneError(
             f"{task / DOCKERFILE}: installs scb-check as {', '.join(installs) or 'nothing'},"
@@ -89,15 +98,45 @@ def _check_scb_check(task: Path) -> None:
         )
 
 
-def _install_commands(dockerfile: bytes) -> list[bytes]:
+def _scorer_installs(dockerfile: bytes) -> list[str]:
     """
-    Each shell command of the Dockerfile's RUN instructions that installs
-    Python packages, with its comments left out.
+    The version of each install of scb-check by the Dockerfile's RUN
+    instructions, or "unpinned" where one pins none.
 
-    A pin anywhere else, such as in an echo, a LABEL or a comment, installs
-    nothing, so it is not counted.
+    Each instruction is read as the shell reads it, quotes and comments
+    included, so a pin anywhere but among an install command's own words,
+    such as in an echo's argument, a comment or a LABEL, installs nothing and
+    is not counted. Raises ValueError for an instruction the shell could not
+    read, such as one whose quote is never closed.
     """
-    installs, current = [], b""
+    versions = []
+    for instruction in _run_instructions(dockerfile):
+        lexer = shlex.shlex(instruction.decode(errors="replace"), posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        command: list[str] = []
+        for word in [*lexer, ";"]:
+            if word not in _OPERATORS:
+                command.append(word)
+                continue
+            versions += _pins(command)
+            command = []
+    return versions
+
+
+def _pins(command: list[str]) -> list[str]:
+    """The scb-check versions one shell command installs, after any VAR=value it sets."""
+    while command and _ASSIGNMENT.match(command[0]):
+        command = command[1:]
+    for installer in _INSTALLERS:
+        if tuple(command[: len(installer)]) == installer:
+            pins = (_PIN.fullmatch(word) for word in command[len(installer) :])
+            return [pin.group(1) or "unpinned" for pin in pins if pin]
+    return []
+
+
+def _run_instructions(dockerfile: bytes) -> list[bytes]:
+    """Each RUN instruction's shell text, its continued lines joined, with no comment line in it."""
+    instructions, current = [], b""
     for line in dockerfile.splitlines():
         if line.lstrip().startswith(b"#"):
             continue
@@ -107,8 +146,6 @@ def _install_commands(dockerfile: bytes) -> list[bytes]:
             continue
         current += line
         instruction, current = current.strip(), b""
-        if instruction[:4].upper() != b"RUN ":
-            continue
-        shell = _COMMENT.sub(b"", instruction[4:])
-        installs += [command.strip() for command in _SEPARATOR.split(shell) if _INSTALL.match(command.strip())]
-    return installs
+        if instruction[:4].upper() == b"RUN ":
+            instructions.append(instruction[4:])
+    return instructions
