@@ -28,6 +28,14 @@ CREDENTIALS = (
 
 
 @pytest.fixture(autouse=True)
+def own_global_git_config(tmp_path_factory, monkeypatch):
+    """A global git config of the test's own, since the workspace writes to it, and never to this machine's."""
+    path = tmp_path_factory.mktemp("git-config") / "gitconfig"
+    path.write_text("[user]\n\tname = Test\n\temail = test@example.com\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(path))
+
+
+@pytest.fixture(autouse=True)
 def _no_credentials(monkeypatch):
     for name in CREDENTIALS:
         monkeypatch.delenv(name, raising=False)

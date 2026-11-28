@@ -1135,7 +1135,9 @@ def test_a_slopcodebench_image_that_installs_scb_check_across_continued_lines_is
     )
     source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], dockerfile=dockerfile)
 
-    lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+    built = lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    assert (built / "cfgpipe" / "environment" / "Dockerfile").read_text() == dockerfile
 
 
 @pytest.mark.parametrize(
@@ -1180,8 +1182,16 @@ def test_a_slopcodebench_task_that_sets_its_agents_network_is_refused_naming_it(
             'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
             'LABEL scorer="scb-check==0.1.3"',
         ),
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            'RUN true # uv tool install "scb-check==0.1.3"',
+        ),
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            'RUN echo "scb-check==0.1.3"',
+        ),
     ],
-    ids=["another-version", "unpinned", "twice", "commented-out", "outside-run"],
+    ids=["another-version", "unpinned", "twice", "commented-out", "outside-run", "inline-comment", "echoed"],
 )
 def test_a_slopcodebench_image_that_installs_another_scb_check_is_refused_naming_it(tmp_path: Path, dockerfile):
     source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], dockerfile=dockerfile)

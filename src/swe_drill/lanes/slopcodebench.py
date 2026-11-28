@@ -33,6 +33,12 @@ _ALLOWLIST = b'network_mode = "allowlist"\nallowed_hosts = ' + (
 )
 # Each install's pinned version, or empty where it pins none.
 _SCB_CHECK = re.compile(rb"scb-check(?:==([0-9A-Za-z.]+))?")
+# A shell command that installs Python packages, after any VAR=value it sets.
+_INSTALL = re.compile(rb"^(?:\S+=\S*\s+)*(?:uv tool install|uv pip install|pip3? install|python3? -m pip install)\b")
+# Where one shell command ends and the next begins.
+_SEPARATOR = re.compile(rb"&&|\|\||;|\|")
+# A shell comment, from a # at the start of a word to the end of the line.
+_COMMENT = re.compile(rb"(?:^|\s)#.*$", re.MULTILINE)
 
 
 def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
@@ -72,7 +78,9 @@ def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
 def _check_scb_check(task: Path) -> None:
     dockerfile = read_task_file(task, DOCKERFILE, "build the slopcodebench lane")
     installs = [
-        found.decode() or "unpinned" for command in _run_commands(dockerfile) for found in _SCB_CHECK.findall(command)
+        found.decode() or "unpinned"
+        for command in _install_commands(dockerfile)
+        for found in _SCB_CHECK.findall(command)
     ]
     if installs != [SCB_CHECK]:
         raise LaneError(
@@ -81,9 +89,15 @@ def _check_scb_check(task: Path) -> None:
         )
 
 
-def _run_commands(dockerfile: bytes) -> list[bytes]:
-    """Each RUN instruction of the Dockerfile, its continued lines joined, with no comment line in it."""
-    commands, current = [], b""
+def _install_commands(dockerfile: bytes) -> list[bytes]:
+    """
+    Each shell command of the Dockerfile's RUN instructions that installs
+    Python packages, with its comments left out.
+
+    A pin anywhere else, such as in an echo, a LABEL or a comment, installs
+    nothing, so it is not counted.
+    """
+    installs, current = [], b""
     for line in dockerfile.splitlines():
         if line.lstrip().startswith(b"#"):
             continue
@@ -92,7 +106,9 @@ def _run_commands(dockerfile: bytes) -> list[bytes]:
             current += stripped[:-1] + b" "
             continue
         current += line
-        if current.lstrip()[:4].upper() == b"RUN ":
-            commands.append(current)
-        current = b""
-    return commands
+        instruction, current = current.strip(), b""
+        if instruction[:4].upper() != b"RUN ":
+            continue
+        shell = _COMMENT.sub(b"", instruction[4:])
+        installs += [command.strip() for command in _SEPARATOR.split(shell) if _INSTALL.match(command.strip())]
+    return installs
