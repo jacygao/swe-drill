@@ -92,6 +92,13 @@ class Owning(Scripted):
     OWNED_PATHS = (".tool", "tool.json")
 
 
+class FailingToKeep(Owning):
+    """An Owning agent whose copy of its state fails, as one would on a full disk."""
+
+    async def _keep_owned(self, environment) -> None:
+        raise RuntimeError("cannot copy .tool to the logs")
+
+
 class Keeping(Owning):
     """An Owning agent that keeps a copy of its state in its logs, as Squiz does."""
 
@@ -499,6 +506,14 @@ def test_an_agent_keeps_its_own_state_in_its_logs_before_it_is_removed(local_env
 
     assert (trial.logs / "kept-tool" / "state").read_text() == "state\n"
     assert not (trial.workspace / ".tool").exists()
+
+
+def test_an_agent_whose_state_cannot_be_kept_keeps_it_in_the_workspace_and_fails(local_environment, trial):
+    with pytest.raises(RuntimeError, match="cannot copy .tool"):
+        trial.run(local_environment, agent=trial.agent(FailingToKeep), script=OWNING)
+
+    assert (trial.workspace / ".tool" / "state").read_text() == "state\n"
+    assert trial.record()["status"] == "harness-failed"
 
 
 def test_a_later_step_starts_with_none_of_the_agents_own_paths(local_environment, trial):

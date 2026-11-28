@@ -739,6 +739,20 @@ def next_step(box: Path, env, the_agent) -> None:
     go(the_agent.run(INSTRUCTION, env, AgentContext()))
 
 
+def test_squiz_adds_whichever_of_its_exclusions_info_exclude_lacks(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    exclude = box / "sandbox" / "gleam" / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    exclude.write_text("/.squiz/\n")
+
+    run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["status"] == "ok"
+    assert exclude.read_text().splitlines().count("/.squiz.json") == 1
+    assert exclude.read_text().splitlines().count("/.squiz/") == 1
+
+
 def test_squiz_reviews_every_step_of_a_task_in_an_episode_of_its_own(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
     squiz_host(box, CLOSING_HOST)

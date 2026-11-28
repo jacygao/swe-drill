@@ -8,6 +8,7 @@ from harbor.agents.installed.base import NonZeroAgentExitCodeError, PackageSpec
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from swe_drill import sandbox
 from swe_drill.agents import RECORD_NAME
 from swe_drill.agents import copilot_cli
 from swe_drill.agents.copilot_cli import CopilotCli, fetch
@@ -213,8 +214,8 @@ class CopilotCliSquiz(CopilotCli):
             " || fail 'git cannot find the workspace'\"'\"'s info/exclude'; "
             'mkdir -p "${exclude%/*}" || fail "cannot make ${exclude%/*}"; '
             # The newline first, in case the file does not end in one. Once, though every step runs this.
-            "grep -qxF /.squiz/ \"$exclude\" 2>/dev/null"
-            " || printf '\\n/.squiz.json\\n/.squiz/\\n' >> \"$exclude\" || fail \"cannot write $exclude\"; "
+            "for line in /.squiz.json /.squiz/; do grep -qxF \"$line\" \"$exclude\" 2>/dev/null"
+            " || printf '\\n%s\\n' \"$line\" >> \"$exclude\" || fail \"cannot write $exclude\"; done; "
             # The repository's own .gitignore outranks info/exclude, and can unignore either.
             "{ git check-ignore -q .squiz.json && git check-ignore -q .squiz/; }"
             " || fail 'the workspace'\"'\"'s ignore rules keep .squiz.json or .squiz/, so squiz'\"'\"'s files"
@@ -300,9 +301,10 @@ class CopilotCliSquiz(CopilotCli):
         kept = shlex.quote(self._kept())
         local = shlex.quote(self._local())
         settings = shlex.quote(f"{self._prepared[0]}/.squiz.json")
-        await environment.exec(
-            f"rm -rf {kept}; if [ -d {local} ]; then cp -R {local} {kept} && rm -rf {kept}/objects; fi;"
-            f" if [ -f {settings} ]; then cp {settings} {shlex.quote(self._kept() + '.json')}; fi"
+        await sandbox.run(
+            environment,
+            f"rm -rf {kept} && {{ [ ! -d {local} ] || {{ cp -R {local} {kept} && rm -rf {kept}/objects; }}; }}"
+            f" && {{ [ ! -f {settings} ] || cp {settings} {shlex.quote(self._kept() + '.json')}; }}",
         )
 
     async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:

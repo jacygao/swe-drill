@@ -267,13 +267,20 @@ class Adapter:
         """
         Stop everything the agent started, remove OWNED_PATHS, capture the
         patch and write suss.json, then raise what the run raised.
+
+        Where _keep_owned fails, OWNED_PATHS are left in the workspace, the
+        trial is `harness-failed`, and that failure is raised once the record
+        is written, unless the run already raised.
         """
         await sandbox.stop_marked(environment, token)
         try:
             # Harbor waits on a cancelled agent with no limit.
             cleanup = CLEANUP_SECONDS if isinstance(raised, asyncio.CancelledError) else None
             async with asyncio.timeout(cleanup):
-                await self._remove_owned(environment)
+                try:
+                    await self._remove_owned(environment)
+                except Exception as error:
+                    status, raised = "harness-failed", raised or error
                 await self._record(environment, status, run_seconds)
         except BaseException as error:
             # The capture's error is the trial's, since with no patch the
@@ -299,11 +306,15 @@ class Adapter:
         self._owned_absent = True
 
     async def _keep_owned(self, environment: BaseEnvironment) -> None:
-        """Copy what the agent needs of OWNED_PATHS into its logs. Nothing, unless an agent keeps something."""
+        """
+        Copy what the agent needs of OWNED_PATHS into its logs. Nothing, unless
+        an agent keeps something. Raises when it cannot, so nothing is removed.
+        """
 
     async def _remove_owned(self, environment: BaseEnvironment) -> None:
         if not self.OWNED_PATHS or not self._owned_absent:
             return
+        # Raises where the agent cannot keep them, and then they stay where they are.
         await self._keep_owned(environment)
         paths = " ".join(shlex.quote(path) for path in self.OWNED_PATHS)
         await sandbox.run(environment, f"cd {shlex.quote(self._prepared[0])} && rm -rf -- {paths}")
