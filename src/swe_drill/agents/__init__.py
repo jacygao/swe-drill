@@ -322,7 +322,9 @@ class Adapter:
     async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:
         """Capture the patch, copy it to the artifacts directory, then write suss.json beside it."""
         workspace, base, start_tree = self._prepared
-        patch_bytes = await capture_patch(environment, workspace, start_tree, self.sandbox_logs)
+        patch_bytes = await capture_patch(
+            environment, workspace, start_tree, self.sandbox_logs, leave_out=self.OWNED_PATHS
+        )
         logs = f"{self.sandbox_logs.rstrip('/')}/{PATCH_NAME}"
         # Harbor collects only the artifacts directory for a verifier in a
         # sandbox of its own, so the copy is the patch that verifier grades.
@@ -335,7 +337,7 @@ class Adapter:
         if self._step is not None:
             step_base, step_tree = self._step
             step_bytes = await capture_patch(
-                environment, workspace, step_tree, self.sandbox_logs, STEP_PATCH_NAME
+                environment, workspace, step_tree, self.sandbox_logs, STEP_PATCH_NAME, self.OWNED_PATHS
             )
             step = {"step": {"base": step_base, "patch_bytes": step_bytes}}
         record = {

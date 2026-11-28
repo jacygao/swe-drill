@@ -514,6 +514,17 @@ def test_an_agent_whose_state_cannot_be_kept_keeps_it_in_the_workspace_and_fails
 
     assert (trial.workspace / ".tool" / "state").read_text() == "state\n"
     assert trial.record()["status"] == "harness-failed"
+    patch = trial.patch()
+    assert "work.txt" in patch
+    assert ".tool" not in patch and "tool.json" not in patch, "the agent's own state is in its patch"
+
+
+def test_an_agents_own_paths_stay_out_of_its_patch_when_it_commits_them(local_environment, trial):
+    trial.run(local_environment, agent=trial.agent(Owning), script=OWNING + " && git add -f -A && git -c user.name=a -c user.email=a@a commit -qm mine")
+
+    patch = trial.patch()
+    assert "work.txt" in patch
+    assert ".tool" not in patch and "tool.json" not in patch, "the agent's own state is in its patch"
 
 
 def test_a_later_step_starts_with_none_of_the_agents_own_paths(local_environment, trial):

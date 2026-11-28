@@ -6,6 +6,7 @@ workspace is there and not on the machine running SWE-drill.
 """
 
 import shlex
+from collections.abc import Sequence
 
 from harbor.environments.base import BaseEnvironment
 
@@ -137,11 +138,17 @@ async def read_start_tree(env: BaseEnvironment, workspace: str) -> str:
 
 
 async def capture_patch(
-    env: BaseEnvironment, workspace: str, start: str, logs_dir: str = LOGS_DIR, name: str = PATCH_NAME
+    env: BaseEnvironment,
+    workspace: str,
+    start: str,
+    logs_dir: str = LOGS_DIR,
+    name: str = PATCH_NAME,
+    leave_out: Sequence[str] = (),
 ) -> int:
     """
     Write the whole change from the tree `start` names to `name` in the logs
-    directory, and return its size in bytes.
+    directory, and return its size in bytes, leaving out the workspace paths
+    in `leave_out` and everything under them.
 
     The change is the same whether the harness committed it, staged it or left
     it in the working tree. A workspace with no change gives an empty patch.
@@ -170,6 +177,7 @@ async def capture_patch(
         ' done < "$list" | git update-index -z --add --stdin; } 2>&1;'
         ' status=$?; [ -n "$list" ] && rm -f "$list"; exit $status',
     )
+    excluded = " ".join(shlex.quote(f":(exclude,literal,top){path}") for path in leave_out)
     # Git writes the file itself, because exec returns stdout as decoded text,
     # which corrupts any byte that is not valid UTF-8. The flags after --binary
     # stop the repository's config writing a patch that does not apply.
@@ -177,7 +185,7 @@ async def capture_patch(
         env,
         f"{git} diff --cached --binary"
         " --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/"
-        f" {shlex.quote(start)} -- > {patch}",
+        f" {shlex.quote(start)} -- . {excluded} > {patch}",
     )
     return int(await _run(env, f"wc -c < {patch}"))
 
