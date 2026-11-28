@@ -398,6 +398,51 @@ def test_run_before_setup_is_refused(local_environment, trial):
         go(trial.agent().run(instruction=INSTRUCTION, environment=local_environment, context=AgentContext()))
 
 
+def run_step(trial: Trial, env, agent, script: str) -> tuple[dict, str]:
+    """One step of a multi-step task: Harbor runs the same agent again, without setup."""
+    type(agent).script = script
+    go(agent.run(instruction=INSTRUCTION, environment=env, context=AgentContext()))
+    return trial.record(), trial.patch()
+
+
+def test_each_later_step_starts_from_a_commit_of_the_step_before(local_environment, trial):
+    agent = trial.agent()
+    go(agent.setup(environment=local_environment))
+    run_step(trial, local_environment, agent, "echo first > one.txt")
+
+    second, _ = run_step(trial, local_environment, agent, "echo second > two.txt")
+
+    assert second["base"] == trial.base
+    assert git(trial.workspace, "show", f"{second['step']['base']}:one.txt") == "first\n"
+    step_patch = (trial.logs / "step.patch").read_text()
+    assert "two.txt" in step_patch and "one.txt" not in step_patch, "the step's patch holds another step's change"
+    assert second["step"]["patch_bytes"] == len((trial.logs / "step.patch").read_bytes())
+
+
+def test_a_later_steps_patch_rebuilds_every_step_on_a_fresh_copy_of_the_image(local_environment, trial, tmp_path):
+    agent = trial.agent()
+    go(agent.setup(environment=local_environment))
+    run_step(trial, local_environment, agent, "echo first > one.txt")
+
+    run_step(trial, local_environment, agent, "echo second >> one.txt")
+
+    fresh = tmp_path / "fresh"
+    subprocess.run(["git", "clone", "-q", str(trial.workspace), str(fresh)], check=True)
+    git(fresh, "checkout", "-q", trial.base)
+    git(fresh, "apply", str(trial.artifacts / "model.patch"))
+    assert (fresh / "one.txt").read_text() == "first\nsecond\n"
+
+
+def test_a_tasks_only_step_leaves_head_and_status_as_the_image_left_them(local_environment, trial):
+    (trial.workspace / "left.txt").write_text("the image's\n")
+
+    record = trial.run(local_environment, script="git rev-parse HEAD > ../head; git status --porcelain > ../status")
+
+    assert record["base"] == trial.base
+    assert (trial.workspace.parent / "head").read_text().strip() == trial.base
+    assert (trial.workspace.parent / "status").read_text() == "?? left.txt\n"
+
+
 def test_a_trial_that_starts_outside_a_repository_fails_naming_the_directory(
     local_environment, trial, tmp_path
 ):

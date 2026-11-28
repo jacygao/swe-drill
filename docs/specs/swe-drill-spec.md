@@ -88,6 +88,13 @@ In the agent phase, SWE-drill:
 5. **captures the patch**, the whole change from the starting tree;
 6. **writes the trial record**, `suss.json`.
 
+A task of several steps runs the agent phase once per step, in the same
+sandbox, and each step's record and patch are in the trial's
+`steps/<step>/agent/`. Each step after the first starts by committing what the
+workspace holds. Its `model.patch` is still the whole change from the trial's
+starting tree, and its `step.patch` is that step's own change, from that
+commit.
+
 The trial's result comes from Harbor's separate verifier, a fresh sandbox
 Harbor starts in the same agent job once the agent's sandbox has stopped.
 
@@ -197,6 +204,7 @@ The agent's own files go there too, such as Copilot CLI's stream,
 |---|---|
 | `suss.json` | the trial record, below |
 | `model.patch` | the patch, the whole change from the starting tree |
+| `step.patch` | on each step of a task after the first, that step's own change |
 
 ```json
 {
@@ -226,6 +234,8 @@ The agent's own files go there too, such as Copilot CLI's stream,
   ```
 - `base` is the commit. `model.patch` applies to the starting tree, which is
   the base only when the image left no change in the workspace.
+- `step`, on each step of a task after the first, holds the commit the step
+  started from, as `base`, and the size of `step.patch`, as `patch_bytes`.
 - `status` is `ok`, `harness-failed` or `timed-out`, or for
   `CopilotCliSquiz` also `review-stopped` or `review-timed-out`. A trial runs
   until its task's agent timeout, and is `timed-out` when Harbor stops it
