@@ -759,13 +759,6 @@ def test_squiz_patch_is_saved_only_once_squiz_closes_after_copilot_exits(box, lo
     assert (bin_dir(box) / "review.cwd").read_text().strip() == str(box / "sandbox" / "gleam")
 
 
-def next_step(box: Path, env, the_agent) -> None:
-    """The next step of a task, as Harbor runs it: the step's logs moved away, and the same agent run again."""
-    shutil.move(logs(box), logs(box).with_name("agent-step-1"))
-    logs(box).mkdir()
-    go(the_agent.run(INSTRUCTION, env, AgentContext()))
-
-
 def test_a_squiz_review_that_fails_keeps_what_it_printed_to_stderr(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
     reviews(box, (1, ""))
