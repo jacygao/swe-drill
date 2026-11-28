@@ -29,7 +29,7 @@ class Arm:
 @dataclass(frozen=True)
 class Config:
     path: Path
-    # rebench's download, as swe_atlas_rf is atlas-rf's; each None where swe-drill.toml names none.
+    # rebench's download, as swe_atlas_rf is atlas-rf's and swe_slopcodebench slopcodebench's; each None where swe-drill.toml names none.
     swe_rebench: Path | None
     environment: str
     k: int
@@ -37,6 +37,7 @@ class Config:
     arm: Arm
     env: dict[str, str]
     swe_atlas_rf: Path | None = None
+    swe_slopcodebench: Path | None = None
     # The model atlas-rf's rubric judge calls, on an atlas-rf run; None where swe-drill.toml sets none.
     eval_model: str | None = None
 
@@ -52,6 +53,7 @@ class Config:
 DOWNLOADS = {
     lanes.REBENCH: "swe_rebench",
     lanes.ATLAS_RF: "swe_atlas_rf",
+    lanes.SLOPCODEBENCH: "swe_slopcodebench",
 }
 REQUIRED = ("environment", "k", "concurrency")
 # Ignored, they would leave a run going on what its author believes they still set.
@@ -130,6 +132,7 @@ def load(path: Path, arm: str, lane: str) -> Config:
         path=path,
         swe_rebench=_path(directory, data.get("swe_rebench")),
         swe_atlas_rf=_path(directory, data.get("swe_atlas_rf")),
+        swe_slopcodebench=_path(directory, data.get("swe_slopcodebench")),
         environment=data["environment"],
         k=data["k"],
         concurrency=data["concurrency"],

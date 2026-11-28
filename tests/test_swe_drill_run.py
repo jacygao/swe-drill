@@ -672,7 +672,7 @@ def test_a_lane_swe_drill_does_not_have_in_swe_drill_toml_is_refused_as_the_spec
     assert code != 0
     assert err == (
         f"error: {project.directory / 'swe-drill.toml'}: sets [lanes.rebnech], but SWE-drill has no lane "
-        "named rebnech; its lanes are rebench, atlas-rf\n"
+        "named rebnech; its lanes are rebench, atlas-rf, slopcodebench\n"
     )
     assert out == ""
     assert_nothing_ran(project)
@@ -696,12 +696,12 @@ def test_a_refused_argument_after_the_separator_is_printed_as_the_spec_shows(pro
         (["peer-review", "rebench", "-x"], "-x"),
         (["peer-review"], "lane"),
         ([], "arm"),
-        (["peer-review", "pro-go"], "no lane named pro-go; its lanes are rebench, atlas-rf"),
+        (["peer-review", "pro-go"], "no lane named pro-go; its lanes are rebench, atlas-rf, slopcodebench"),
         (
             ["peer-review", "rebench", "pro-go"],
-            "no lane named pro-go; its lanes are rebench, atlas-rf",
+            "no lane named pro-go; its lanes are rebench, atlas-rf, slopcodebench",
         ),
-        (["peer-review", "senior"], "no lane named senior; its lanes are rebench, atlas-rf"),
+        (["peer-review", "senior"], "no lane named senior; its lanes are rebench, atlas-rf, slopcodebench"),
         (["peer-review", "rebench", "rebench"], "rebench is named twice"),
         (["no-such-arm", "rebench"], "arm no-such-arm is not defined"),
     ],

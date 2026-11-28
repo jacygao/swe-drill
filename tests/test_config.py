@@ -33,6 +33,7 @@ def write_config(directory: Path, text: str) -> Path:
 TOP = """\
 swe_rebench = "../tasks/swe-rebench-07-2026"
 swe_atlas_rf = "../tasks/swe-atlas-rf"
+swe_slopcodebench = "../tasks/slopcodebench"
 environment = "docker"
 k = 3
 concurrency = 4
@@ -74,7 +75,7 @@ def test_a_lane_swe_drill_does_not_have_is_an_error_naming_it(tmp_path: Path):
         config.load(path, "a", "rebench")
 
     assert str(error.value) == (
-        f"{path}: sets [lanes.senoir], but SWE-drill has no lane named senoir; its lanes are rebench, atlas-rf"
+        f"{path}: sets [lanes.senoir], but SWE-drill has no lane named senoir; its lanes are rebench, atlas-rf, slopcodebench"
     )
 
 
@@ -217,6 +218,7 @@ def test_a_swe_drill_toml_that_is_not_toml_is_an_error_naming_it(tmp_path: Path,
     [
         ("swe_rebench", "rebench"),
         ("swe_atlas_rf", "atlas-rf"),
+        ("swe_slopcodebench", "slopcodebench"),
         ("environment", "rebench"),
         ("k", "atlas-rf"),
         ("concurrency", "rebench"),
@@ -236,7 +238,7 @@ def test_a_missing_top_level_key_is_an_error_naming_it_and_the_file(
 
 @pytest.mark.parametrize(
     "key, lane",
-    [("swe_rebench", "atlas-rf"), ("swe_atlas_rf", "rebench")],
+    [("swe_rebench", "atlas-rf"), ("swe_atlas_rf", "rebench"), ("swe_slopcodebench", "rebench")],
 )
 def test_a_lane_needs_no_other_lanes_download(tmp_path: Path, key: str, lane: str):
     lines = [line for line in TOP.splitlines() if not line.startswith(f"{key} =")]
@@ -251,11 +253,12 @@ def test_a_lane_needs_no_other_lanes_download(tmp_path: Path, key: str, lane: st
 TOP_DOWNLOADS = {
     "rebench": "../tasks/swe-rebench-07-2026",
     "atlas-rf": "../tasks/swe-atlas-rf",
+    "slopcodebench": "../tasks/slopcodebench",
 }
 
 
 def test_each_lane_reads_the_download_its_own_key_names(spec_config: Path):
-    for lane in ("rebench", "atlas-rf"):
+    for lane in ("rebench", "atlas-rf", "slopcodebench"):
         settings = config.load(spec_config, "copilot-sonnet", lane)
 
         assert settings.download(lane) == (spec_config.parent / TOP_DOWNLOADS[lane]).resolve()
@@ -315,7 +318,7 @@ def test_an_old_swe_drill_toml_that_sets_seniors_judge_is_refused_naming_the_lan
         config.load(path, "a", "rebench")
 
     assert str(error.value) == (
-        f"{path}: sets [lanes.senior], but SWE-drill has no lane named senior; its lanes are rebench, atlas-rf"
+        f"{path}: sets [lanes.senior], but SWE-drill has no lane named senior; its lanes are rebench, atlas-rf, slopcodebench"
     )
 
 

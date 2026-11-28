@@ -895,7 +895,7 @@ def test_a_lane_swe_drill_does_not_have_is_an_error_naming_its_lanes(results, ca
 
     out, err = capsys.readouterr()
     assert code != 0
-    assert (out, err) == ("", f"error: SWE-drill has no lane named {lane}; its lanes are rebench, atlas-rf\n")
+    assert (out, err) == ("", f"error: SWE-drill has no lane named {lane}; its lanes are rebench, atlas-rf, slopcodebench\n")
 
 
 def test_the_lane_is_required(results, capsys):

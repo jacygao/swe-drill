@@ -208,6 +208,22 @@ def test_an_atlas_rf_trials_grader_names_the_model_its_rubric_judge_calls(tmp_pa
     assert found == {"dataset": "swe-atlas-rf", "judge_model": "gemini-4-argon"}
 
 
+def test_a_slopcodebench_trials_grader_names_the_dataset_revision_and_the_scorer(tmp_path):
+    path = tmp_path / "swe-drill.toml"
+    path.write_text(
+        'swe_slopcodebench = "slopcodebench"\nenvironment = "docker"\nk = 1\nconcurrency = 1\n'
+        '[arms.a]\nagent = "m:A"\n'
+    )
+
+    found = grader(config.load(path, "a", lanes.SLOPCODEBENCH), lanes.SLOPCODEBENCH)
+
+    assert found == {
+        "dataset": "slopcodebench",
+        "digest": "sha256:aec29354c19d3e762640ab6d7d3c63ba8fcf4895e98a5756aecb9157b5bb4ae0",
+        "scb_check": "0.1.3",
+    }
+
+
 def test_the_record_keeps_the_arms_kwargs_and_model_as_harbor_gave_them(local_environment, trial):
     agent = trial.agent(rounds=3, model_name="fake/model-1")
 

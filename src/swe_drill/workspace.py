@@ -65,7 +65,8 @@ async def make_workspace(env: BaseEnvironment) -> str:
     directory. One that holds files and no repository is refused as
     `find_workspace` refuses it, since the image has then lost the repository
     its files belong to. The repository is made by the sandbox's default user,
-    who runs the agent's commands too.
+    who runs the agent's commands too, and marked safe in that user's git
+    config whoever owns the directory.
     """
     start = (await _run(env, "pwd")).removesuffix("\n")
     quoted = shlex.quote(start)
@@ -75,9 +76,12 @@ async def make_workspace(env: BaseEnvironment) -> str:
         f' && [ -z "$(ls -A {quoted})" ]'
     )
     if empty.return_code == 0:
+        # Git refuses a repository in a directory another user owns, as an
+        # image's WORKDIR often is, to this user and to the agent alike.
         await _run(
             env,
-            f"git -C {quoted} init -q 2>&1"
+            f"git config --global --add safe.directory {quoted} 2>&1"
+            f" && git -C {quoted} init -q 2>&1"
             f" && git -C {quoted} {_COMMIT} --allow-empty -m 'Empty workspace' 2>&1",
         )
     return await find_workspace(env)
