@@ -274,6 +274,8 @@ def report(directory: Path, lane: str = lanes.REBENCH) -> str:
     trials or only invalid ones, or a trial's verifier applied none of its
     patch or could not apply it.
     """
+    if lane == lanes.SLOPCODEBENCH:
+        return quality_report(directory)
     config.check_arms(Path(directory) / "swe-drill.toml")
     trials = _read(directory, lane)
     standings = sorted(
@@ -414,3 +416,212 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
 def _whole(share: float) -> int:
     """The share as a whole percent, a half rounded up."""
     return int(share * 100 + 0.5)
+
+
+@dataclass(frozen=True)
+class Problem:
+    """
+    One trial of a slopcodebench problem: each checkpoint it declares, in
+    order, with what that checkpoint's verifier gave.
+
+    A checkpoint never graded, as one after the problem stopped, has None for
+    every measure. Erosion and verbosity are also None where scb-check
+    measured nothing, whose 0.0 in the reward is not a score.
+    """
+
+    job: str
+    task: str
+    strict: tuple[float | None, ...]
+    core: tuple[float | None, ...]
+    erosion: tuple[float | None, ...]
+    verbosity: tuple[float | None, ...]
+
+    @property
+    def graded(self) -> int:
+        return sum(value is not None for value in self.strict)
+
+
+@dataclass(frozen=True)
+class QualityStanding:
+    """An arm's row of the slopcodebench leaderboard. A measure nothing gave is None."""
+
+    arm: str
+    runs: int
+    strict: float
+    margin: float
+    core: float
+    erosion: float | None
+    verbosity: float | None
+    # The share of transitions between measured checkpoints where erosion went up.
+    erosion_rose: float | None
+
+
+def read_problems(directory: Path, arm: str) -> list[Problem]:
+    """
+    Every trial in the arm's agent jobs under `results/slopcodebench/<arm>/`,
+    in `directory`, sorted by job and task.
+
+    Raises LeaderboardError for a trial of a problem revision 4 does not have,
+    whose checkpoints the leaderboard cannot count.
+    """
+    arm_directory = Path(directory) / "results" / lanes.SLOPCODEBENCH / arm
+    if not arm_directory.is_dir():
+        return []
+    problems = []
+    for job in sorted(_directories(arm_directory)):
+        for trial in _directories(job):
+            task = _task(trial)
+            if task is None:
+                continue
+            declared = lanes.slopcodebench.CHECKPOINTS.get(task)
+            if declared is None:
+                raise LeaderboardError(
+                    f"the trial of {task} in results/{lanes.SLOPCODEBENCH}/{arm}/{job.name} is of a problem"
+                    " revision 4 does not have, so its checkpoints cannot be counted"
+                )
+            problems.append(_problem(job.name, task, trial, declared))
+    return sorted(problems, key=lambda problem: (problem.job, problem.task))
+
+
+def _problem(job: str, task: str, trial: Path, declared: int) -> Problem:
+    result = _json(trial / "result.json")
+    found = result.get("step_results") if isinstance(result, dict) else None
+    steps = {step.get("step_name"): step for step in found or [] if isinstance(step, dict)}
+    strict, core, erosion, verbosity = [], [], [], []
+    for n in range(1, declared + 1):
+        name = f"checkpoint_{n}"
+        verifier = (steps.get(name) or {}).get("verifier_result")
+        rewards = verifier.get("rewards") if isinstance(verifier, dict) else None
+        rewards = rewards if isinstance(rewards, dict) else {}
+        graded = _number(rewards.get("strict_pass_rate")) is not None and _number(rewards.get("core_pass_rate")) is not None
+        details = _json(trial / "steps" / name / "verifier" / "reward_details.json")
+        measured = graded and isinstance(details, dict) and details.get("scb_check_rc") == 0
+        strict.append(_number(rewards.get("strict_pass_rate")) if graded else None)
+        core.append(_number(rewards.get("core_pass_rate")) if graded else None)
+        erosion.append(_number(rewards.get("erosion")) if measured else None)
+        verbosity.append(_number(rewards.get("verbosity")) if measured else None)
+    return Problem(job, task, tuple(strict), tuple(core), tuple(erosion), tuple(verbosity))
+
+
+def _number(value) -> float | None:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def quality_report(directory: Path) -> str:
+    """
+    What `swe-drill leaderboard --lane slopcodebench` prints, run in `directory`.
+
+    Each trial's pass rates are over every checkpoint its problem declares, one
+    never graded counting 0, and its erosion and verbosity over those scb-check
+    measured. Each problem weighs the same, its runs averaged first. The table
+    goes by strict pass rate, best first, then by arm name. After it come the
+    trials with a checkpoint never graded, then the checkpoints scb-check
+    measured nothing of, each list by arm in the table's order, then by job and
+    task.
+
+    Raises ConfigError as `report` does, and LeaderboardError when no arm has
+    results, an arm has no trials, or a trial is of a problem revision 4 does
+    not have.
+    """
+    config.check_arms(Path(directory) / "swe-drill.toml")
+    lane_directory = Path(directory) / "results" / lanes.SLOPCODEBENCH
+    found = lane_directory.iterdir() if lane_directory.is_dir() else []
+    arms = sorted(entry.name for entry in found if entry.is_dir())
+    if not arms:
+        raise LeaderboardError(f"no results under results/{lanes.SLOPCODEBENCH}/")
+    problems = {}
+    for arm in arms:
+        problems[arm] = read_problems(directory, arm)
+        if not problems[arm]:
+            raise LeaderboardError(f"no results for arm {arm} under results/{lanes.SLOPCODEBENCH}/")
+    standings = sorted(
+        (_quality_standing(arm, found) for arm, found in problems.items()),
+        key=lambda standing: (-standing.strict, standing.arm),
+    )
+    order = [standing.arm for standing in standings]
+    stopped = [
+        (arm, problem.job, f"{problem.task}  graded {problem.graded} of {len(problem.strict)}")
+        for arm in order
+        for problem in problems[arm]
+        if problem.graded < len(problem.strict)
+    ]
+    unmeasured = [
+        (arm, problem.job, f"{problem.task}  checkpoint_{n}")
+        for arm in order
+        for problem in problems[arm]
+        for n, (strict, erosion) in enumerate(zip(problem.strict, problem.erosion), start=1)
+        if strict is not None and erosion is None
+    ]
+    header = ["arm", "runs", "strict pass rate", "core pass rate", "erosion", "verbosity", "erosion rose"]
+    rows = [
+        [
+            s.arm,
+            str(s.runs),
+            f"{_whole(s.strict)}% ±{_whole(s.margin)}",
+            f"{_whole(s.core)}%",
+            "—" if s.erosion is None else f"{s.erosion:.2f}",
+            "—" if s.verbosity is None else f"{s.verbosity:.2f}",
+            "—" if s.erosion_rose is None else f"{_whole(s.erosion_rose)}%",
+        ]
+        for s in standings
+    ]
+    lines = _table(header, rows)
+    lines += _named(
+        "These trials have checkpoints that were never graded, each counting 0:", stopped
+    )
+    lines += _named(
+        "scb-check measured nothing of these checkpoints, so erosion and verbosity leave them out:", unmeasured
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _quality_standing(arm: str, problems: Sequence[Problem]) -> QualityStanding:
+    def by_task(score) -> dict[str, list[float]]:
+        found: dict[str, list[float]] = {}
+        for problem in problems:
+            value = score(problem)
+            if value is not None:
+                found.setdefault(problem.task, []).append(value)
+        return found
+
+    def over_all(values: Sequence[float | None]) -> float:
+        return sum(value or 0.0 for value in values) / len(values)
+
+    def over_measured(values: Sequence[float | None]) -> float | None:
+        measured = [value for value in values if value is not None]
+        return statistics.fmean(measured) if measured else None
+
+    strict = by_task(lambda problem: over_all(problem.strict))
+    rises = [
+        later > earlier
+        for problem in problems
+        for earlier, later in zip(problem.erosion, problem.erosion[1:])
+        if earlier is not None and later is not None
+    ]
+    return QualityStanding(
+        arm=arm,
+        runs=len({problem.job for problem in problems}),
+        strict=_mean_of_means(strict),
+        margin=_mean_margin(strict),
+        core=_mean_of_means(by_task(lambda problem: over_all(problem.core))),
+        erosion=_mean_of_means(by_task(lambda problem: over_measured(problem.erosion))),
+        verbosity=_mean_of_means(by_task(lambda problem: over_measured(problem.verbosity))),
+        erosion_rose=sum(rises) / len(rises) if rises else None,
+    )
+
+
+def _mean_of_means(by_task: Mapping[str, Sequence[float]]) -> float | None:
+    """The mean over tasks of each task's mean, so each task weighs the same. None for no task."""
+    return statistics.fmean(statistics.fmean(found) for found in by_task.values()) if by_task else None
+
+
+def _mean_margin(by_task: Mapping[str, Sequence[float]]) -> float:
+    """
+    Half the width of a 95% interval on `_mean_of_means`, from the same
+    bootstrap `margin` uses: tasks drawn with replacement, each with every run.
+    """
+    means = [statistics.fmean(found) for found in by_task.values()]
+    rng = random.Random(SEED)
+    resampled = [statistics.fmean(rng.choices(means, k=len(means))) for _ in range(RESAMPLES)]
+    cuts = statistics.quantiles(resampled, n=40, method="inclusive")
+    return (cuts[-1] - cuts[0]) / 2
