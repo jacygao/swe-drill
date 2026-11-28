@@ -63,6 +63,8 @@ def harbor_commands(
     """
     The `harbor run` command for agent job `trial` of the arm on `lane`, which
     grades each trial itself with ReplayVerifier in Harbor's separate verifier.
+    On slopcodebench it names no verifier, since each step's own test.sh grades
+    the step's /app, which Harbor carries to that verifier itself.
     On atlas-rf it grades with JudgedVerifier instead, given the arm, the lane
     and swe-drill.toml as `--verifier-kwarg`, so that it reads the judge's
     model and key from them.
@@ -112,7 +114,7 @@ def harbor_commands(
         agent += ["--verifier", JUDGED_VERIFIER]
         for key, value in (("drill_config", "swe-drill.toml"), ("arm", arm.name), ("lane", lane)):
             agent += ["--verifier-kwarg", _kwarg(key, value)]
-    else:
+    elif lane != lanes.SLOPCODEBENCH:
         agent += ["--verifier", VERIFIER]
     agent += ["--jobs-dir", str(jobs_dir), "--job-name", job_name]
     _refuse(harbor_args)

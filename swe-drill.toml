@@ -1,5 +1,6 @@
 swe_rebench = "../tasks/swe-rebench-07-2026"
 swe_atlas_rf = "../tasks/swe-atlas-rf"
+swe_slopcodebench = "../tasks/slopcodebench"
 environment = "modal"
 k = 1
 concurrency = 32

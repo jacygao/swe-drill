@@ -97,6 +97,7 @@ def spec_config(tmp_path: Path, lane: str) -> Config:
     [
         ("rebench", ()),
         ("atlas-rf", ()),
+        ("slopcodebench", ()),
     ],
 )
 def test_each_lanes_commands_match_the_spec_token_for_token(tmp_path, lane, reads):
@@ -165,6 +166,17 @@ def test_a_rebench_agent_job_grades_its_trials_in_swe_drill_verifier_with_no_reg
         "-a", "swe_drill.agents.copilot_cli:CopilotCli", "--ak", "arm=peer-review", "--ak", "drill_config=swe-drill.toml",
         "--ak", "lane=rebench", "--verifier", "swe_drill.replay:ReplayVerifier",
         "--jobs-dir", "results/rebench/peer-review", "--job-name", f"{STAMP}-1",
+    ]
+
+
+def test_a_slopcodebench_agent_job_grades_each_step_with_the_tasks_own_verifier(tmp_path):
+    agent = harbor_commands(make_config(tmp_path), hosts(()), "slopcodebench", STAMP, 1)
+
+    assert agent.argv == [
+        "harbor", "run", "-p", "lanes/slopcodebench", "-e", "docker", "-n", "16", "-k", "1",
+        "-a", "swe_drill.agents.copilot_cli:CopilotCli", "--ak", "arm=peer-review", "--ak", "drill_config=swe-drill.toml",
+        "--ak", "lane=slopcodebench",
+        "--jobs-dir", "results/slopcodebench/peer-review", "--job-name", f"{STAMP}-1",
     ]
 
 

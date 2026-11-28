@@ -33,7 +33,7 @@ def test_a_lane_swe_drill_does_not_have_is_an_error_naming_its_lanes(lane: str):
     with pytest.raises(LaneError) as error:
         lanes.check_lane(lane)
 
-    assert str(error.value) == f"SWE-drill has no lane named {lane}; its lanes are rebench, atlas-rf"
+    assert str(error.value) == f"SWE-drill has no lane named {lane}; its lanes are rebench, atlas-rf, slopcodebench"
 
 
 @pytest.mark.parametrize("lane", ["rebench", "atlas-rf"])
@@ -1048,3 +1048,130 @@ def test_harbors_docker_compose_keeps_a_bash_image_running_only_with_the_copys_c
         assert (state.stdout.strip() == "running") is running, state.stdout
     finally:
         subprocess.run([*project, "down", "-t", "0"], env=env, capture_output=True)
+
+
+# A SlopCodeBench task as revision 4 lays one out, cut to two steps.
+SCB_TOML = """schema_version = "1.1"
+
+[task]
+name = "gabeorlanski/{name}"
+
+[environment]
+cpus = 1
+memory_mb = 2048
+allow_internet = true
+workdir = "/app"
+
+[agent]
+timeout_sec = 7200.0
+
+[verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "checkpoint_1"
+min_reward = { core_pass_rate = 0.0, strict_pass_rate = 0.0 }
+
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "checkpoint_2"
+min_reward = { core_pass_rate = 0.0, strict_pass_rate = 0.0 }
+
+[steps.verifier]
+timeout_sec = 3600.0
+"""
+SCB_DOCKERFILE = (
+    "FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim\n"
+    'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"\n'
+    "WORKDIR /app\n"
+)
+
+
+def make_slopcodebench(root: Path, names: list[str], toml: str = SCB_TOML, dockerfile: str = SCB_DOCKERFILE) -> Path:
+    for name in names:
+        task = root / name
+        (task / "environment").mkdir(parents=True)
+        (task / "task.toml").write_text(toml.replace("{name}", name))
+        (task / "environment" / "Dockerfile").write_text(dockerfile)
+        for step in ("checkpoint_1", "checkpoint_2"):
+            (task / "steps" / step / "tests").mkdir(parents=True)
+            (task / "steps" / step / "instruction.md").write_text(f"Build {name}, {step}.\n")
+            (task / "steps" / step / "tests" / "test.sh").write_text("#!/bin/bash\nexit 0\n")
+    (root / "metric.py").write_text("# the dataset's own metric\n")
+    return root
+
+
+def test_a_slopcodebench_copy_reaches_pypi_and_grades_every_step_in_a_separate_verifier(tmp_path: Path):
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"])
+
+    built = lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    copied = toml_of(built / "cfgpipe")
+    original = toml_of(source / "cfgpipe")
+    assert copied["agent"] == {
+        "timeout_sec": 7200.0,
+        "network_mode": "allowlist",
+        "allowed_hosts": ["pypi.org", "files.pythonhosted.org"],
+    }
+    assert copied["verifier"] == {"timeout_sec": 3600.0, "environment_mode": "separate"}
+    assert copied["steps"] == original["steps"], "a step's own settings changed"
+    assert {key: value for key, value in copied.items() if key not in ("agent", "verifier")} == {
+        key: value for key, value in original.items() if key not in ("agent", "verifier")
+    }
+    everything_else = every_file(source / "cfgpipe")
+    everything_else.pop("task.toml")
+    copied_files = every_file(built / "cfgpipe")
+    copied_files.pop("task.toml")
+    assert copied_files == everything_else
+    assert sorted(entry.name for entry in built.iterdir()) == ["cfgpipe"]
+
+
+@pytest.mark.parametrize(
+    "step_line",
+    ['environment_mode = "shared"', 'environment_mode = "separate"'],
+)
+def test_a_slopcodebench_step_that_sets_its_own_verifier_mode_is_refused_naming_it(tmp_path: Path, step_line):
+    toml = SCB_TOML.replace(
+        '[steps.verifier]\ntimeout_sec = 3600.0\n\n[[steps]]',
+        f'[steps.verifier]\ntimeout_sec = 3600.0\n{step_line}\n\n[[steps]]',
+        1,
+    )
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], toml=toml)
+
+    with pytest.raises(LaneError) as raised:
+        lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    assert "cfgpipe" in str(raised.value) and "checkpoint_1" in str(raised.value)
+
+
+def test_a_slopcodebench_task_that_sets_its_agents_network_is_refused_naming_it(tmp_path: Path):
+    toml = SCB_TOML.replace(
+        "[agent]\ntimeout_sec = 7200.0\n",
+        '[agent]\ntimeout_sec = 7200.0\nnetwork_mode = "allowlist"\nallowed_hosts = ["example.com"]\n',
+    )
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], toml=toml)
+
+    with pytest.raises(LaneError) as raised:
+        lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    assert "cfgpipe" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        SCB_DOCKERFILE.replace("scb-check==0.1.3", "scb-check==0.1.4"),
+        SCB_DOCKERFILE.replace('"scb-check==0.1.3"', "scb-check"),
+        SCB_DOCKERFILE + 'RUN uv tool install "scb-check==0.1.3"\n',
+    ],
+    ids=["another-version", "unpinned", "twice"],
+)
+def test_a_slopcodebench_image_that_installs_another_scb_check_is_refused_naming_it(tmp_path: Path, dockerfile):
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], dockerfile=dockerfile)
+
+    with pytest.raises(LaneError) as raised:
+        lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    assert "cfgpipe" in str(raised.value) and "scb-check" in str(raised.value)

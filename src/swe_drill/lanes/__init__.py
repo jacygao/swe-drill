@@ -16,22 +16,23 @@ from pathlib import Path
 
 from harbor.models.task.config import EnvironmentConfig
 
-from swe_drill.lanes import atlas_rf, rebench
+from swe_drill.lanes import atlas_rf, rebench, slopcodebench
 from swe_drill.lanes.edits import LaneError, add_key
 
 MIB = 2**20
 
 REBENCH = "rebench"
 ATLAS_RF = "atlas-rf"
+SLOPCODEBENCH = "slopcodebench"
 
-LANES = (REBENCH, ATLAS_RF)
+LANES = (REBENCH, ATLAS_RF, SLOPCODEBENCH)
 
 # Each lane's module, which names the tasks the lane leaves out as UNGRADEABLE,
 # and gives the files its copy of a task writes with `rewrite(task, toml)`.
-LANE_MODULES = {REBENCH: rebench, ATLAS_RF: atlas_rf}
+LANE_MODULES = {REBENCH: rebench, ATLAS_RF: atlas_rf, SLOPCODEBENCH: slopcodebench}
 
 # The lanes whose trials Harbor grades in a sandbox of their own, in the agent job.
-SEPARATE_VERIFIER = (REBENCH, ATLAS_RF)
+SEPARATE_VERIFIER = (REBENCH, ATLAS_RF, SLOPCODEBENCH)
 
 
 def check_lane(lane: str) -> None:

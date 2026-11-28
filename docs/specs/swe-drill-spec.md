@@ -34,6 +34,7 @@ claude-code     3         58% ±8  70% @3
 | Modal | 1.6.0 or later, which Harbor's own `modal` extra requires at the Harbor version above, and the account Harbor's `modal` environment uses. `uv sync --extra modal` installs its client into SWE-drill's environment, through that extra. A plain `uv sync` leaves it out. | The sandboxes, when `environment` is `modal`. |
 | SWE-rebench | `ibragim-badertdinov/swe-rebench-07-2026` from Harbor Hub, as `harbor download` writes it | The `rebench` lane's tasks. |
 | SWE Atlas | `scale-ai/swe-atlas-rf` from Harbor Hub, as `harbor download` writes it | The `atlas-rf` lane's tasks. |
+| SlopCodeBench | `gabeorlanski/slopcodebench` from Harbor Hub at revision 4, as `harbor download gabeorlanski/slopcodebench@4` writes it | The `slopcodebench` lane's tasks. |
 | Python | 3.12 | SWE-drill itself, whose agents and verifier Harbor imports. |
 | `uv` | any | Installs SWE-drill and Harbor. |
 | Azure CLI | any, signed in with `az login` | `scripts/azure-run.sh`, which runs one `swe-drill run` on an Azure VM's Docker and deletes the VM once its results are kept. |
@@ -114,14 +115,16 @@ the run ends.
 
 Harbor grades each trial in its separate verifier: a fresh sandbox built from
 the task's own `Dockerfile`, which it starts in the same agent job once the
-agent's sandbox has stopped. That sandbox holds nothing of the
-agent's but `/logs/artifacts/`. SWE-drill's verifier applies the `model.patch` there
+agent's sandbox has stopped. That sandbox holds nothing of the agent's but
+`/logs/artifacts/`, and on `slopcodebench` the step's `/app`. SWE-drill's verifier applies the `model.patch` there
 in the workspace, found as the trial found it, puts every test file back as the
 image held it, and runs the task's own `test.sh` there, unchanged. That reward
 is the trial's result. On `rebench` the agent job passes
 `--verifier swe_drill.replay:ReplayVerifier`. On `atlas-rf` it passes
 `--verifier swe_drill.judge:JudgedVerifier`, which grades the same way and then
-runs the task's rubric judge on the host, as its lane describes.
+runs the task's rubric judge on the host, as its lane describes. On
+`slopcodebench` it passes no verifier, and each step's own `test.sh` grades the
+step's `/app`, as its lane describes.
 
 Applying the patch changes the working tree alone, so `test.sh` finds the
 change uncommitted, with `HEAD` at the base. All of the patch applies or none
@@ -229,8 +232,14 @@ The agent's own files go there too, such as Copilot CLI's stream,
 - On `atlas-rf`, `grader` also holds the model its rubric judge calls, from
   `[lanes.atlas-rf.judge]`:
 
-  ```json
+    ```json
   { "grader": { "dataset": "swe-atlas-rf", "judge_model": "gemini-4-argon" } }
+  ```
+- On `slopcodebench`, `grader` also holds the digest of the dataset revision the
+  lane is built from, and the version of `scb-check` its scores come from:
+
+  ```json
+  { "grader": { "dataset": "slopcodebench", "digest": "sha256:aec29354c19d3e762640ab6d7d3c63ba8fcf4895e98a5756aecb9157b5bb4ae0", "scb_check": "0.1.3" } }
   ```
 - `base` is the commit. `model.patch` applies to the starting tree, which is
   the base only when the image left no change in the workspace.
@@ -408,17 +417,20 @@ fixes, and `reported_models` stays the coding agent's:
 
 ## 5. Lanes
 
-SWE-drill has two lanes, `rebench` and `atlas-rf`. Every task gives
-the agent a repository at the commit before a real change, and an instruction
-about that change. The task's verifier grades it, and a trial resolves when its
-reward is 1. Each lane is measured on its own, and nothing compares one lane
-with another. On each lane, `swe-drill leaderboard` ranks the arms by the share
-of trials that resolve.
+SWE-drill has three lanes, `rebench`, `atlas-rf` and `slopcodebench`. A lane
+is a set of benchmark tasks, how each trial of them is graded, and how
+`swe-drill leaderboard` ranks the arms on it. Each lane is measured on its own,
+and nothing compares one lane with another.
+
+A `rebench` or `atlas-rf` task gives the agent a repository at the commit
+before a real change, and an instruction about that change. The task's verifier
+grades it, a trial resolves when its reward is 1, and the leaderboard ranks the
+arms by the share of trials that resolve.
 
 Each lane is a directory of copies of its tasks, built from the download that
 its key in `swe-drill.toml` names. Each task's image is built from the `Dockerfile`
-in its `environment/`, and the build downloads from the network. Its repository
-is in the image's `WORKDIR`. Each copy's `task.toml` adds
+in its `environment/`, and the build downloads from the network. The agent
+works in the image's `WORKDIR`. Each copy's `task.toml` adds
 `[verifier] environment_mode = "separate"`, and every trial is graded in a
 sandbox of its own.
 
@@ -517,7 +529,34 @@ change as above, or whose `tests` directory is a link, is refused. So is a task
 whose entrypoint the lane clears, where its `environment` directory is missing
 or a link, or already holds a `docker-compose.yaml`.
 
+### `slopcodebench`
+
+All 36 problems of SlopCodeBench, `gabeorlanski/slopcodebench` at revision 4.
+Each problem is a task of 3 to 8 steps, its checkpoints, 196 in all. Each
+step's instruction adds requirements to the code the agent wrote in the steps
+before, in `/app`, which starts empty. Every task names 1 CPU and 2048 MiB, an
+agent timeout of 7200 seconds and a verifier timeout of 3600 for each step. A
+step whose verifier gives no `core_pass_rate` or `strict_pass_rate` ends the
+task.
+
+Each step is graded in a separate verifier, on the `/app` Harbor collects once
+the step's agent has finished, less its `.git`, virtual environments and
+caches. The step's own `test.sh` runs that step's tests and every earlier
+step's, then measures the code with the `scb-check` the image installs.
+`verifier/reward.json` holds the step's scores:
+
+```json
+{ "core_pass_rate": 1.0, "isolated_pass_rate": 0.92, "strict_pass_rate": 0.75, "verbosity": 0.12, "erosion": 0.31, "verbosity_increased": 0.0, "erosion_increased": 0.0, "step_has_prior": 0.0 }
+```
+
+`verbosity_increased`, `erosion_increased` and `step_has_prior` are 0 in every
+step, since each step's verifier starts with no earlier step's scores.
+
+A task with a step that sets a verifier mode or environment of its own, or
+whose image installs `scb-check` other than once, at 0.1.3, is refused.
+
 ### Network
+
 
 In the agent phase, a trial reaches the hosts in its agent class's
 `ALLOWED_HOSTS` and the hosts in its own task's `[agent] allowed_hosts`, and no
@@ -537,9 +576,11 @@ and `clickhouse.com`, under an agent allowing `api.anthropic.com` and
 Harbor ignores `--allow-agent-host` when the agent's network is public, which
 it is when a task's `[agent]` sets no `network_mode` and the task gives the
 network to the whole trial, with `[environment] network_mode = "public"` or with
-`allow_internet = true`. Every `rebench` and `atlas-rf` task does. So the copy's `task.toml`
-adds `[agent] network_mode = "no-network"` where `[agent]` sets no
-`network_mode`. A `task.toml` whose `[agent]` sets `no-network` or `allowlist`
+`allow_internet = true`. Every task of every lane does. So the copy's
+`task.toml` adds `[agent] network_mode = "no-network"` where `[agent]` sets no
+`network_mode`. A `slopcodebench` copy adds `network_mode = "allowlist"` with
+`allowed_hosts` of `pypi.org` and `files.pythonhosted.org` instead, and one whose
+`[agent]` sets its network itself is refused. A `task.toml` whose `[agent]` sets `no-network` or `allowlist`
 is copied unchanged. One whose `[agent]` sets any
 other `network_mode`, or sets `allowed_hosts` with no `network_mode`, is
 refused. The verifier keeps the task's own network, which a `rebench` copy uses
@@ -562,8 +603,8 @@ in a normal run.
 
 It reads the arm from `swe-drill.toml` in the current directory. For each lane, it
 builds `lanes/<lane>/`, a directory of copies of the lane's task directories
-from the directory its key names: `swe_rebench` for `rebench`, and
-`swe_atlas_rf` for `atlas-rf`. Each copy has
+from the directory its key names: `swe_rebench` for `rebench`,
+`swe_atlas_rf` for `atlas-rf`, and `swe_slopcodebench` for `slopcodebench`. Each copy has
 the changes its lane describes. A build removes what an
 earlier build of the lane left. Harbor builds each task's image from its
 `Dockerfile` when its trial starts.
@@ -592,6 +633,17 @@ settings as the agent does:
   --verifier swe_drill.judge:JudgedVerifier --verifier-kwarg drill_config=swe-drill.toml \
   --verifier-kwarg arm=copilot-gpt --verifier-kwarg lane=atlas-rf \
   --jobs-dir results/atlas-rf/copilot-gpt --job-name <stamp>-1
+```
+
+On `slopcodebench` it names no verifier:
+
+```bash
+<env>/bin/harbor run -p lanes/slopcodebench -e docker -n 16 -k 1 \
+  -a swe_drill.agents.copilot_cli:CopilotCli -m gpt-6.1-sol \
+  --ak version=1.0.105 --ak reasoning_effort=high \
+  --ak arm=copilot-gpt --ak drill_config=swe-drill.toml --ak lane=slopcodebench \
+  --allow-agent-host api.github.com --allow-agent-host api.enterprise.githubcopilot.com \
+  --jobs-dir results/slopcodebench/copilot-gpt --job-name <stamp>-1
 ```
 
 `<stamp>` is the time `swe-drill run` started, in UTC, as `20261031T142500Z`. Every
@@ -680,6 +732,7 @@ swe-drill run copilot-gpt rebench --check
 ```toml
 swe_rebench = "../tasks/swe-rebench-07-2026"
 swe_atlas_rf = "../tasks/swe-atlas-rf"
+swe_slopcodebench = "../tasks/slopcodebench"
 environment = "docker"
 k = 1
 concurrency = 16
@@ -703,13 +756,15 @@ kwargs = { version = "1.0.105", reasoning_effort = "high", hve_core_commit = "55
 model = "gemini-4-argon"
 ```
 
-- `swe_rebench` and `swe_atlas_rf` name the directories of
+- `swe_rebench`, `swe_atlas_rf` and `swe_slopcodebench` name the directories of
   tasks that `harbor download` writes, relative to the directory holding
   `swe-drill.toml`. `swe_rebench` is `<dir>/swe-rebench-07-2026` after
-  `harbor download ibragim-badertdinov/swe-rebench-07-2026 -o <dir>`, and
+  `harbor download ibragim-badertdinov/swe-rebench-07-2026 -o <dir>`,
   `swe_atlas_rf` is `<dir>/swe-atlas-rf` after
-  `harbor download scale-ai/swe-atlas-rf -o <dir>`. Each is required only by a
-  run of its lane, `rebench` or `atlas-rf`. A run of a lane
+  `harbor download scale-ai/swe-atlas-rf -o <dir>`, and `swe_slopcodebench` is
+  `<dir>/slopcodebench` after
+  `harbor download gabeorlanski/slopcodebench@4 -o <dir>`. Each is required only
+  by a run of its lane. A run of a lane
   whose key is missing is refused. A `senior_swe_bench` key is refused:
 
   ```
@@ -773,7 +828,7 @@ model = "gemini-4-argon"
   ```
   $ swe-drill run copilot-gpt rebench
   error: /home/me/evals/swe-drill.toml: sets [lanes.rebnech], but SWE-drill has no lane
-  named rebnech; its lanes are rebench, atlas-rf
+  named rebnech; its lanes are rebench, atlas-rf, slopcodebench
   ```
 - `max_cost_usd`, at the top or on the arm, is refused:
 
@@ -856,7 +911,7 @@ These trials' verifiers judged them invalid, so the leaderboard counts none of t
 
 ```
 $ swe-drill leaderboard --lane rebnech
-error: SWE-drill has no lane named rebnech; its lanes are rebench, atlas-rf
+error: SWE-drill has no lane named rebnech; its lanes are rebench, atlas-rf, slopcodebench
 ```
 
 It exits with an error, and prints nothing else, when:

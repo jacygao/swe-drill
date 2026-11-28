@@ -26,6 +26,7 @@ from harbor.utils.import_path import import_symbol
 
 from swe_drill import config, lanes, sandbox
 from swe_drill.config import ConfigError
+from swe_drill.lanes import slopcodebench
 from swe_drill.workspace import (
     ARTIFACTS_DIR,
     LOGS_DIR,
@@ -43,6 +44,7 @@ RECORD_NAME = "suss.json"
 DATASETS = {
     lanes.REBENCH: "swe-rebench-07-2026",
     lanes.ATLAS_RF: "swe-atlas-rf",
+    lanes.SLOPCODEBENCH: "slopcodebench",
 }
 # How long a cancelled run may take to capture the patch and write suss.json.
 CLEANUP_SECONDS = 60
@@ -367,12 +369,16 @@ class Adapter:
 
 def grader(settings: config.Config, lane: str) -> dict[str, str]:
     """
-    What grades a trial of `lane`, a lane in DATASETS: its dataset, and on
-    atlas-rf the model its rubric judge calls, as `judge_model`.
+    What grades a trial of `lane`, a lane in DATASETS: its dataset; on
+    atlas-rf the model its rubric judge calls, as `judge_model`; and on
+    slopcodebench the dataset's digest and the scb-check its scores come from.
     """
     found = {"dataset": DATASETS[lane]}
     if lane == lanes.ATLAS_RF:
         found["judge_model"] = settings.eval_model
+    if lane == lanes.SLOPCODEBENCH:
+        found["digest"] = slopcodebench.DIGEST
+        found["scb_check"] = slopcodebench.SCB_CHECK
     return found
 
 
