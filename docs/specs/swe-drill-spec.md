@@ -351,7 +351,8 @@ Copilot CLI refuses `reasoning_effort`.
   subagents' own files name theirs.
 - RPI keeps its state in the workspace's `.copilot-tracking/`, which is kept in
   the trial's logs as `/logs/agent/copilot-tracking/` as it is written, and is
-  never in the patch.
+  never in the patch. Each step of a task keeps its own, and starts without the
+  step before's.
 - The trial is `harness-failed`, with Copilot CLI never started, when the
   workspace already has `.copilot-tracking`, or its own ignore rules would put
   it in the patch.

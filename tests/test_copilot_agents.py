@@ -507,11 +507,35 @@ def test_hve_keeps_rpis_files_in_the_logs_and_out_of_the_patch(box, local_enviro
     run(box, local_environment, hve(box))
 
     workspace = box / "sandbox" / "gleam"
-    assert (workspace / ".copilot-tracking").is_symlink()
+    assert not (workspace / ".copilot-tracking").exists() and not (workspace / ".copilot-tracking").is_symlink()
     assert (logs(box) / "copilot-tracking" / "plan.md").read_text() == "the plan\n"
     patch = (logs(box) / "model.patch").read_text()
     assert ".copilot-tracking" not in patch
     assert "a known change" in patch
+
+
+def next_step(box: Path, env, the_agent) -> None:
+    """The next step of a task, as Harbor runs it: the step's logs moved away, and the same agent run again."""
+    shutil.move(logs(box), logs(box).with_name("agent-step-1"))
+    logs(box).mkdir()
+    go(the_agent.run(INSTRUCTION, env, AgentContext()))
+
+
+def test_hve_runs_every_step_of_a_task_keeping_each_steps_rpi_files(box, local_environment):
+    publish(box)
+    copilot = bin_dir(box) / "copilot"
+    copilot.write_text(copilot.read_text().replace(
+        "print((here", 'Path(".copilot-tracking/plan.md").write_text("the plan\\n")\nprint((here'
+    ))
+    the_agent = hve(box)
+    run(box, local_environment, the_agent)
+
+    next_step(box, local_environment, the_agent)
+
+    assert record(box)["status"] == "ok"
+    assert (logs(box) / "copilot-tracking" / "plan.md").read_text() == "the plan\n"
+    assert (logs(box).with_name("agent-step-1") / "copilot-tracking" / "plan.md").exists()
+    assert ".copilot-tracking" not in (logs(box) / "step.patch").read_text()
 
 
 def test_hve_refuses_a_workspace_that_already_has_copilot_tracking(box, local_environment):
