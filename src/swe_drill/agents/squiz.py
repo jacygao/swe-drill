@@ -310,10 +310,16 @@ class CopilotCliSquiz(CopilotCli):
         )
 
     async def _record(self, environment: BaseEnvironment, status: str, run_seconds: float) -> None:
-        """Remove the token file, then record the trial as CopilotCli does."""
+        """
+        Remove the token file, then record the trial as CopilotCli does.
+
+        The run's reviews are cleared once recorded, so a later step's record
+        holds its own alone, even where it is refused before it reviews.
+        """
         if self._token_file is not None:
             await environment.exec(f"rm -f {shlex.quote(self._token_file)}")
         await super()._record(environment, status, run_seconds)
+        self._review_exits = []
 
     async def _usage(self, environment: BaseEnvironment) -> dict[str, Any]:
         """

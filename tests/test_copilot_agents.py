@@ -754,6 +754,21 @@ def test_a_squiz_review_that_fails_keeps_what_it_printed_to_stderr(box, local_en
     )
 
 
+def test_a_later_step_refused_for_squizs_paths_records_no_review(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    reviews(box, (0, "Reviewed clean.\n"))
+    the_agent = squiz_agent(box)
+    run(box, local_environment, the_agent)
+    (box / "sandbox" / "gleam" / ".squiz.json").write_text("{}")
+
+    with pytest.raises(NonZeroAgentExitCodeError, match="already has .squiz.json"):
+        next_step(box, local_environment, the_agent)
+
+    assert record(box)["status"] == "harness-failed"
+    assert record(box)["squiz"]["review_exits"] == []
+
+
 def test_squiz_adds_whichever_of_its_exclusions_info_exclude_lacks(box, local_environment, monkeypatch):
     publish_squiz(box, monkeypatch)
     squiz_host(box, CLOSING_HOST)
