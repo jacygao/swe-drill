@@ -88,6 +88,12 @@ In the agent phase, SWE-drill:
 5. **captures the patch**, the whole change from the starting tree;
 6. **writes the trial record**, `suss.json`.
 
+A task of several steps runs the agent phase once per step, in the same
+sandbox, and each step's record and patch are in the trial's
+`steps/<step>/agent/`. Each step after the first starts by committing what the
+workspace holds, and that commit is the step's base, so its patch holds only
+that step's change.
+
 The trial's result comes from Harbor's separate verifier, a fresh sandbox
 Harbor starts in the same agent job once the agent's sandbox has stopped.
 

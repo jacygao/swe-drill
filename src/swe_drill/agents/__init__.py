@@ -30,6 +30,7 @@ from swe_drill.workspace import (
     LOGS_DIR,
     PATCH_NAME,
     capture_patch,
+    commit_workspace,
     make_workspace,
     read_base,
     read_start_tree,
@@ -109,6 +110,8 @@ class Adapter:
         self.sandbox_logs = logs
         self.sandbox_artifacts = artifacts
         self._prepared: tuple[str, str, str] | None = None
+        # Whether Harbor has run the agent before, as it does once per step of a task.
+        self._ran = False
         self._token: str | None = None
         self.installed_version: str | None = None
         super().__init__(**kwargs)
@@ -176,6 +179,10 @@ class Adapter:
         Run the agent, stop everything it started, capture the patch, and
         write suss.json.
 
+        Harbor runs it once for each step of a task. Each run after the first
+        starts by committing the workspace, so its patch and base are that
+        step's alone.
+
         The trial is `timed-out` when Harbor cancels the run at its agent
         timeout, or AFTER_AGENT_TIMED_OUT when the cancel comes once the agent
         has exited, `harness-failed` when the agent raises, and otherwise what
@@ -185,6 +192,12 @@ class Adapter:
         """
         if self._prepared is None:
             raise RuntimeError(f"{type(self).__name__}.run was called before setup")
+        if self._ran:
+            workspace = self._prepared[0]
+            await commit_workspace(environment, workspace)
+            base = await read_base(environment, workspace)
+            self._prepared = (workspace, base, await read_start_tree(environment, workspace))
+        self._ran = True
         self._token = sandbox.new_token()
         status = "ok"
         raised: BaseException | None = None

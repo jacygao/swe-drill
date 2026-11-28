@@ -398,6 +398,36 @@ def test_run_before_setup_is_refused(local_environment, trial):
         go(trial.agent().run(instruction=INSTRUCTION, environment=local_environment, context=AgentContext()))
 
 
+def run_step(trial: Trial, env, agent, script: str) -> tuple[dict, str]:
+    """One step of a multi-step task: Harbor runs the same agent again, without setup."""
+    type(agent).script = script
+    go(agent.run(instruction=INSTRUCTION, environment=env, context=AgentContext()))
+    return trial.record(), trial.patch()
+
+
+def test_each_later_step_starts_from_a_commit_of_the_step_before(local_environment, trial):
+    agent = trial.agent()
+    go(agent.setup(environment=local_environment))
+    first, _ = run_step(trial, local_environment, agent, "echo first > one.txt")
+
+    second, patch = run_step(trial, local_environment, agent, "echo second > two.txt")
+
+    assert first["base"] == trial.base
+    assert second["base"] != trial.base
+    assert git(trial.workspace, "show", f"{second['base']}:one.txt") == "first\n"
+    assert "two.txt" in patch and "one.txt" not in patch, "the step's patch holds another step's change"
+
+
+def test_a_tasks_only_step_leaves_head_and_status_as_the_image_left_them(local_environment, trial):
+    (trial.workspace / "left.txt").write_text("the image's\n")
+
+    record = trial.run(local_environment, script="git rev-parse HEAD > ../head; git status --porcelain > ../status")
+
+    assert record["base"] == trial.base
+    assert (trial.workspace.parent / "head").read_text().strip() == trial.base
+    assert (trial.workspace.parent / "status").read_text() == "?? left.txt\n"
+
+
 def test_a_trial_that_starts_outside_a_repository_fails_naming_the_directory(
     local_environment, trial, tmp_path
 ):

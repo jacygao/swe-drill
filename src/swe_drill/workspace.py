@@ -15,6 +15,14 @@ ARTIFACTS_DIR = "/logs/artifacts"
 PATCH_NAME = "model.patch"
 
 
+# A commit from SWE-drill's own identity, which no config, hook or init
+# template of the image signs, rejects or changes.
+_COMMIT = (
+    "-c user.name=SWE-drill -c user.email=swe-drill@localhost"
+    " -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q"
+)
+
+
 class WorkspaceError(Exception):
     """A workspace SWE-drill cannot read or capture. The message carries git's output."""
 
@@ -65,16 +73,24 @@ async def make_workspace(env: BaseEnvironment) -> str:
         f' && [ -z "$(ls -A {quoted})" ]'
     )
     if empty.return_code == 0:
-        # A commit from SWE-drill's own identity, which no config, hook or init
-        # template of the image signs, rejects or changes.
         await _run(
             env,
             f"git -C {quoted} init -q 2>&1"
-            f" && git -C {quoted} -c user.name=SWE-drill -c user.email=swe-drill@localhost"
-            " -c commit.gpgsign=false -c core.hooksPath=/dev/null"
-            " commit -q --allow-empty -m 'Empty workspace' 2>&1",
+            f" && git -C {quoted} {_COMMIT} --allow-empty -m 'Empty workspace' 2>&1",
         )
     return await find_workspace(env)
+
+
+async def commit_workspace(env: BaseEnvironment, workspace: str) -> None:
+    """
+    Commit everything the workspace holds that git does not ignore, so the
+    next step of a task starts on a commit of the step before.
+
+    Raises WorkspaceError when git cannot.
+    """
+    git = f"git -C {shlex.quote(workspace)}"
+    # Empty when the step before changed nothing, so every step still starts on a commit of its own.
+    await _run(env, f"{git} add -A 2>&1 && {git} {_COMMIT} --allow-empty -m 'Start of step' 2>&1")
 
 
 async def read_base(env: BaseEnvironment, workspace: str) -> str:
