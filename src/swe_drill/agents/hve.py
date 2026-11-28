@@ -26,10 +26,12 @@ class CopilotCliHve(CopilotCli):
     RPI keeps its state and documents in the workspace's .copilot-tracking/,
     which is made a link to the logs directory and ignored through
     .git/info/exclude, so they are kept as they are written, even when the run
-    is stopped, and stay out of the patch.
+    is stopped, and stay out of the patch. The link is the agent's own, so each
+    step of a task keeps its own RPI files and starts without the last's.
     """
 
     KWARGS = (*CopilotCli.KWARGS, "hve_core_commit")
+    OWNED_PATHS = (".copilot-tracking",)
     REQUIRED_KWARGS = ("version", "hve_core_commit")
 
     def __init__(self, *, hve_core_commit: Any, **kwargs: Any):
@@ -100,20 +102,18 @@ class CopilotCliHve(CopilotCli):
         Make the workspace's .copilot-tracking a link to the logs, ignored by git.
 
         Raises NonZeroAgentExitCodeError, so the trial is graded with no change,
-        when the workspace already has one, which is the task's and the link
-        would delete, or when its own ignore rules keep the link in the patch.
+        when the workspace's own ignore rules keep the link in the patch.
         """
         workspace = self._prepared[0]
         tracking = shlex.quote(f"{self.sandbox_logs.rstrip('/')}/copilot-tracking")
         result = await environment.exec(
             "fail() { echo \"$1\"; exit 1; }; "
-            "if [ -e .copilot-tracking ] || [ -L .copilot-tracking ]; then"
-            " fail 'the workspace already has .copilot-tracking, where RPI keeps its state'; fi; "
             "exclude=$(git rev-parse --git-path info/exclude)"
             " || fail 'git cannot find the workspace'\"'\"'s info/exclude'; "
             f'mkdir -p "${{exclude%/*}}" {tracking} || fail "cannot make ${{exclude%/*}} and {tracking}"; '
-            # The newline first, in case the file does not end in one.
-            "printf '\\n/.copilot-tracking\\n' >> \"$exclude\" || fail \"cannot write $exclude\"; "
+            # The newline first, in case the file does not end in one. Once, though every step runs this.
+            "grep -qxF /.copilot-tracking \"$exclude\" 2>/dev/null"
+            " || printf '\\n/.copilot-tracking\\n' >> \"$exclude\" || fail \"cannot write $exclude\"; "
             # The repository's own .gitignore outranks info/exclude, and can unignore it.
             "git check-ignore -q .copilot-tracking || fail 'the workspace'\"'\"'s ignore rules keep"
             " .copilot-tracking, so RPI'\"'\"'s files would be in the patch'; "
