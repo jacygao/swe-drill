@@ -28,6 +28,7 @@ from harbor.agents.installed.copilot_cli import CopilotCli as HarborCopilotCli
 from harbor.models.agent.context import AgentContext
 from harbor.models.trial.config import AgentConfig as TrialAgentConfig
 
+import swe_drill.agents.squiz as squiz_module
 from swe_drill.agents.copilot_cli import CopilotCli
 from swe_drill.agents import squiz as squiz_agent_module
 from swe_drill.agents.hve import CopilotCliHve, full_auto_prompt
@@ -767,6 +768,25 @@ def test_a_later_step_refused_for_squizs_paths_records_no_review(box, local_envi
 
     assert record(box)["status"] == "harness-failed"
     assert record(box)["squiz"]["review_exits"] == []
+
+
+def test_squizs_token_file_is_gone_when_keeping_its_state_is_cancelled(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    squiz_host(box, CLOSING_HOST)
+    real = squiz_module.sandbox.run
+
+    async def cancelled_copy(env, command, user=None):
+        # As the cleanup time limit cancels a copy still running.
+        if "cp -R" in command:
+            raise asyncio.CancelledError()
+        return await real(env, command, user)
+
+    monkeypatch.setattr(squiz_module.sandbox, "run", cancelled_copy)
+
+    with pytest.raises(asyncio.CancelledError):
+        run(box, local_environment, squiz_agent(box))
+
+    assert not (box / "sandbox" / "home" / ".local" / "share" / "swe-drill" / "copilot-token").exists()
 
 
 def test_squiz_adds_whichever_of_its_exclusions_info_exclude_lacks(box, local_environment, monkeypatch):

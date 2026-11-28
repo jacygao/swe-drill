@@ -299,7 +299,14 @@ class CopilotCliSquiz(CopilotCli):
         return int((result.stdout or "").rsplit("\n", 1)[-1])
 
     async def _keep_owned(self, environment: BaseEnvironment) -> None:
-        """Copy squiz's settings, and its state less its objects, to the logs, before the adapter removes them."""
+        """
+        Copy squiz's settings, and its state less its objects, to the logs,
+        before the adapter removes them.
+
+        The token file goes first, since a cancel during the copy, at the
+        cleanup time limit, would otherwise leave it.
+        """
+        await self._remove_token(environment)
         kept = shlex.quote(self._kept())
         local = shlex.quote(self._local())
         settings = shlex.quote(f"{self._prepared[0]}/.squiz.json")
@@ -316,10 +323,13 @@ class CopilotCliSquiz(CopilotCli):
         The run's reviews are cleared once recorded, so a later step's record
         holds its own alone, even where it is refused before it reviews.
         """
-        if self._token_file is not None:
-            await environment.exec(f"rm -f {shlex.quote(self._token_file)}")
+        await self._remove_token(environment)
         await super()._record(environment, status, run_seconds)
         self._review_exits = []
+
+    async def _remove_token(self, environment: BaseEnvironment) -> None:
+        if self._token_file is not None:
+            await environment.exec(f"rm -f {shlex.quote(self._token_file)}")
 
     async def _usage(self, environment: BaseEnvironment) -> dict[str, Any]:
         """
