@@ -379,8 +379,9 @@ A trial runs like this:
    fails, or any other outcome, `harness-failed`.
 4. Squiz's round cap ends the loop, and Harbor's agent timeout bounds it.
 
-Each review's output is kept as `/logs/agent/squiz-loop/<n>.review.txt`, and
-each fix's stream as `<n>.fixer.jsonl`. Once the loop ends, squiz's own state,
+Each review's output is kept as `/logs/agent/squiz-loop/<n>.review.txt`, what
+it printed to stderr as `<n>.review.err`, and each fix's stream as
+`<n>.fixer.jsonl`. Once the loop ends, squiz's own state,
 less its objects, is kept under `/logs/agent/squiz/`, and its settings as
 `/logs/agent/squiz.json`. Each step of a task reviews that step's change, in an
 episode of its own. The reviewer signs in

@@ -254,8 +254,10 @@ class CopilotCliSquiz(CopilotCli):
         while True:
             turn = len(self._review_exits) + 1
             review = shlex.quote(f"{self._loop()}/{turn}.review.txt")
+            # Where squiz says why a review failed.
+            errors = shlex.quote(f"{self._loop()}/{turn}.review.err")
             code = await self._exit_of(
-                environment, f'export PATH="$HOME/.local/bin:$PATH"; squiz review > {review}'
+                environment, f'export PATH="$HOME/.local/bin:$PATH"; squiz review > {review} 2> {errors}'
             )
             self._review_exits.append(code)
             if code in (CLEAN, CLOSED_AT_BOUND):
@@ -382,7 +384,10 @@ class CopilotCliSquiz(CopilotCli):
         return f"{self.sandbox_logs.rstrip('/')}/squiz"
 
     def _loop(self) -> str:
-        """Where each `squiz review`'s output and each fix's stream are kept, as `<n>.review.txt` and `<n>.fixer.jsonl`."""
+        """
+        Where each `squiz review`'s output and errors and each fix's stream are
+        kept, as `<n>.review.txt`, `<n>.review.err` and `<n>.fixer.jsonl`.
+        """
         return f"{self.sandbox_logs.rstrip('/')}/squiz-loop"
 
 

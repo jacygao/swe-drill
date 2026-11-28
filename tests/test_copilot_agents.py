@@ -638,7 +638,8 @@ FAKE_NODE = """#!/bin/sh
 if [ "$1" = --version ]; then echo v24.15.0; exit 0; fi
 exec /bin/sh "$@"
 """
-# `review` prints review.<n>.out and exits review.<n>.exit, 0 where the test gave none, for its nth call.
+# `review` prints review.<n>.out, and review.<n>.err to stderr, and exits review.<n>.exit, 0 where the test
+# gave none, for its nth call.
 FAKE_SQUIZ_CLI = """root=$(cd "$(dirname "$0")/.." && pwd)
 [ "$1" = version ] && echo "squiz VERSION $root/bin/squiz"
 if [ "$1" = review ]; then
@@ -648,6 +649,7 @@ if [ "$1" = review ]; then
     pwd > "$here/review.cwd"
     [ -f "$here/review.sleep" ] && sleep "$(cat "$here/review.sleep")"
     cat "$here/review.$n.out" 2>/dev/null
+    cat "$here/review.$n.err" >&2 2>/dev/null
     exit "$(cat "$here/review.$n.exit" 2>/dev/null || echo 0)"
 fi
 """
@@ -737,6 +739,19 @@ def next_step(box: Path, env, the_agent) -> None:
     shutil.move(logs(box), logs(box).with_name("agent-step-1"))
     logs(box).mkdir()
     go(the_agent.run(INSTRUCTION, env, AgentContext()))
+
+
+def test_a_squiz_review_that_fails_keeps_what_it_printed_to_stderr(box, local_environment, monkeypatch):
+    publish_squiz(box, monkeypatch)
+    reviews(box, (1, ""))
+    (bin_dir(box) / "review.1.err").write_text("squiz: no review ran: the head could not be committed\n")
+
+    run(box, local_environment, squiz_agent(box))
+
+    assert record(box)["status"] == "review-stopped"
+    assert (logs(box) / "squiz-loop" / "1.review.err").read_text() == (
+        "squiz: no review ran: the head could not be committed\n"
+    )
 
 
 def test_squiz_adds_whichever_of_its_exclusions_info_exclude_lacks(box, local_environment, monkeypatch):
