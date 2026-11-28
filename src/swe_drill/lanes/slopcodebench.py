@@ -46,6 +46,7 @@ _INSTALLERS = (
 # Where one shell command ends and the next begins.
 _OPERATORS = {"&&", "||", ";", "|", "&"}
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_ESCAPED_OPERATOR = re.compile(r"\\[;&|]")
 
 
 def rewrite(task: Path, toml: bytes) -> dict[str, bytes]:
@@ -103,24 +104,40 @@ def _scorer_installs(dockerfile: bytes) -> list[str]:
     The version of each install of scb-check by the Dockerfile's RUN
     instructions, or "unpinned" where one pins none.
 
-    Each instruction is read as the shell reads it, quotes and comments
-    included, so a pin anywhere but among an install command's own words,
-    such as in an echo's argument, a comment or a LABEL, installs nothing and
-    is not counted. Raises ValueError for an instruction the shell could not
-    read, such as one whose quote is never closed.
+    Each instruction that names scb-check is split into words and commands,
+    quotes and comments included, so a pin anywhere but among an install
+    command's own words, such as in an echo's argument, a comment or a LABEL,
+    installs nothing and is not counted. Raises ValueError for such an
+    instruction the split cannot read, such as one whose quote is never
+    closed or that escapes an operator, so that a form it cannot establish is
+    refused rather than counted.
     """
     versions = []
     for instruction in _run_instructions(dockerfile):
-        lexer = shlex.shlex(instruction.decode(errors="replace"), posix=True, punctuation_chars=True)
+        text = instruction.decode(errors="replace")
+        # One that never names the scorer cannot install it, and need not be read.
+        if "scb-check" not in text:
+            continue
+        # Read without escapes below, so an escaped operator would pass for one the shell runs.
+        if _ESCAPED_OPERATOR.search(text):
+            raise ValueError("a backslash before ;, & or |")
+        # Not POSIX, so a quoted operator keeps its quotes and is never taken for one.
+        lexer = shlex.shlex(text, posix=False, punctuation_chars=True)
         lexer.whitespace_split = True
         command: list[str] = []
         for word in [*lexer, ";"]:
             if word not in _OPERATORS:
-                command.append(word)
+                command.append(_unquoted(word))
                 continue
             versions += _pins(command)
             command = []
     return versions
+
+
+def _unquoted(word: str) -> str:
+    """The word as the shell passes it on, its quotes removed."""
+    parts = shlex.split(word)
+    return parts[0] if parts else ""
 
 
 def _pins(command: list[str]) -> list[str]:

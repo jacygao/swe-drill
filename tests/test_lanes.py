@@ -1128,6 +1128,18 @@ def test_a_slopcodebench_copy_reaches_pypi_and_grades_every_step_in_a_separate_v
     assert sorted(entry.name for entry in built.iterdir()) == ["cfgpipe"]
 
 
+def test_a_slopcodebench_image_whose_other_instructions_nest_quotes_is_built(tmp_path: Path):
+    # As code_search's Node install, which no reading of quotes but the shell's own follows.
+    dockerfile = SCB_DOCKERFILE.replace(
+        "WORKDIR /app", 'RUN NODE_BIN_DIR="$(dirname "$NODE_PATH")" && ln -sf "$NODE_BIN_DIR/node" /usr/local/bin/node\nWORKDIR /app'
+    )
+    source = make_slopcodebench(tmp_path / "slopcodebench", ["cfgpipe"], dockerfile=dockerfile)
+
+    built = lanes.build(lanes.SLOPCODEBENCH, source, tmp_path / "lanes")
+
+    assert (built / "cfgpipe" / "environment" / "Dockerfile").read_text() == dockerfile
+
+
 def test_a_slopcodebench_image_that_installs_scb_check_across_continued_lines_is_built(tmp_path: Path):
     dockerfile = SCB_DOCKERFILE.replace(
         'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
@@ -1198,10 +1210,18 @@ def test_a_slopcodebench_task_that_sets_its_agents_network_is_refused_naming_it(
             'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
             'RUN uv tool install "scb-check==0.1.3',
         ),
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            "RUN echo ';' uv tool install scb-check==0.1.3",
+        ),
+        SCB_DOCKERFILE.replace(
+            'RUN UV_TOOL_DIR=/opt/uv-tools uv tool install --no-cache "scb-check==0.1.3"',
+            "RUN echo \\; uv tool install scb-check==0.1.3",
+        ),
     ],
     ids=[
         "another-version", "unpinned", "twice", "commented-out", "outside-run", "inline-comment", "echoed",
-        "quoted-command", "unclosed-quote",
+        "quoted-command", "unclosed-quote", "quoted-operator", "escaped-operator",
     ],
 )
 def test_a_slopcodebench_image_that_installs_another_scb_check_is_refused_naming_it(tmp_path: Path, dockerfile):
