@@ -408,14 +408,29 @@ def run_step(trial: Trial, env, agent, script: str) -> tuple[dict, str]:
 def test_each_later_step_starts_from_a_commit_of_the_step_before(local_environment, trial):
     agent = trial.agent()
     go(agent.setup(environment=local_environment))
-    first, _ = run_step(trial, local_environment, agent, "echo first > one.txt")
+    run_step(trial, local_environment, agent, "echo first > one.txt")
 
-    second, patch = run_step(trial, local_environment, agent, "echo second > two.txt")
+    second, _ = run_step(trial, local_environment, agent, "echo second > two.txt")
 
-    assert first["base"] == trial.base
-    assert second["base"] != trial.base
-    assert git(trial.workspace, "show", f"{second['base']}:one.txt") == "first\n"
-    assert "two.txt" in patch and "one.txt" not in patch, "the step's patch holds another step's change"
+    assert second["base"] == trial.base
+    assert git(trial.workspace, "show", f"{second['step']['base']}:one.txt") == "first\n"
+    step_patch = (trial.logs / "step.patch").read_text()
+    assert "two.txt" in step_patch and "one.txt" not in step_patch, "the step's patch holds another step's change"
+    assert second["step"]["patch_bytes"] == len((trial.logs / "step.patch").read_bytes())
+
+
+def test_a_later_steps_patch_rebuilds_every_step_on_a_fresh_copy_of_the_image(local_environment, trial, tmp_path):
+    agent = trial.agent()
+    go(agent.setup(environment=local_environment))
+    run_step(trial, local_environment, agent, "echo first > one.txt")
+
+    run_step(trial, local_environment, agent, "echo second >> one.txt")
+
+    fresh = tmp_path / "fresh"
+    subprocess.run(["git", "clone", "-q", str(trial.workspace), str(fresh)], check=True)
+    git(fresh, "checkout", "-q", trial.base)
+    git(fresh, "apply", str(trial.artifacts / "model.patch"))
+    assert (fresh / "one.txt").read_text() == "first\nsecond\n"
 
 
 def test_a_tasks_only_step_leaves_head_and_status_as_the_image_left_them(local_environment, trial):

@@ -13,6 +13,8 @@ LOGS_DIR = "/logs/agent"
 # What Harbor collects from the agent's sandbox for a verifier in a sandbox of its own.
 ARTIFACTS_DIR = "/logs/artifacts"
 PATCH_NAME = "model.patch"
+# A later step's own change, which model.patch holds with every step before it.
+STEP_PATCH_NAME = "step.patch"
 
 
 # A commit from SWE-drill's own identity, which no config, hook or init
@@ -131,11 +133,11 @@ async def read_start_tree(env: BaseEnvironment, workspace: str) -> str:
 
 
 async def capture_patch(
-    env: BaseEnvironment, workspace: str, start: str, logs_dir: str = LOGS_DIR
+    env: BaseEnvironment, workspace: str, start: str, logs_dir: str = LOGS_DIR, name: str = PATCH_NAME
 ) -> int:
     """
-    Write the whole change from the tree `start` names to model.patch in the
-    logs directory, and return its size in bytes.
+    Write the whole change from the tree `start` names to `name` in the logs
+    directory, and return its size in bytes.
 
     The change is the same whether the harness committed it, staged it or left
     it in the working tree. A workspace with no change gives an empty patch.
@@ -143,7 +145,7 @@ async def capture_patch(
     change.
     """
     git = f"git -C {shlex.quote(workspace)}"
-    patch = shlex.quote(f"{logs_dir.rstrip('/')}/{PATCH_NAME}")
+    patch = shlex.quote(f"{logs_dir.rstrip('/')}/{name}")
     await _run(env, f"mkdir -p {shlex.quote(logs_dir)} && {git} add -A")
     # A file in the starting tree that git now ignores is still staged while it
     # exists, as a tracked file would be. Otherwise a harness that only ignores
